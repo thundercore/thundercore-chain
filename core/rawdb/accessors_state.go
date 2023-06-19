@@ -23,8 +23,18 @@ import (
 )
 
 // ReadPreimage retrieves a single preimage of the provided hash.
-func ReadPreimage(db ethdb.KeyValueReader, hash common.Hash) []byte {
+// thunder_patch begin
+func ReadPreimage(db ethdb.Reader, hash common.Hash) []byte {
+	// thunder_patch original
+	// func ReadPreimage(db ethdb.KeyValueReader, hash common.Hash) []byte {
+	// thunder_patch end
 	data, _ := db.Get(preimageKey(hash))
+	// thunder_patch begin
+	if len(data) == 0 {
+		// Then try to look up the history data in the history store.
+		data, _ = db.HistoryGet(preimageKey(hash))
+	}
+	// thunder_patch end
 	return data
 }
 
@@ -40,13 +50,24 @@ func WritePreimages(db ethdb.KeyValueWriter, preimages map[common.Hash][]byte) {
 }
 
 // ReadCode retrieves the contract code of the provided code hash.
-func ReadCode(db ethdb.KeyValueReader, hash common.Hash) []byte {
+// thunder_patch begin
+func ReadCode(db ethdb.Reader, hash common.Hash) []byte {
+	// thunder_patch original
+	// func ReadCode(db ethdb.KeyValuReader, hash common.Hash) []byte {
+	// thunder_patch end
+
 	// Try with the legacy code scheme first, if not then try with current
 	// scheme. Since most of the code will be found with legacy scheme.
 	//
 	// todo(rjl493456442) change the order when we forcibly upgrade the code
 	// scheme with snapshot.
 	data, _ := db.Get(hash[:])
+	// thunder_patch begin
+	if len(data) == 0 {
+		// Then try to look up the history data in the history store.
+		data, _ = db.HistoryGet(hash[:])
+	}
+	// thunder_patch end
 	if len(data) != 0 {
 		return data
 	}
@@ -56,8 +77,18 @@ func ReadCode(db ethdb.KeyValueReader, hash common.Hash) []byte {
 // ReadCodeWithPrefix retrieves the contract code of the provided code hash.
 // The main difference between this function and ReadCode is this function
 // will only check the existence with latest scheme(with prefix).
-func ReadCodeWithPrefix(db ethdb.KeyValueReader, hash common.Hash) []byte {
+// thunder_patch begin
+func ReadCodeWithPrefix(db ethdb.Reader, hash common.Hash) []byte {
+	// thunder_patch original
+	// func ReadCodeWithPrefix(db ethdb.KeyValueReader, hash common.Hash) []byte {
+	// thunder_patch end
 	data, _ := db.Get(codeKey(hash))
+	// thunder_patch begin
+	if len(data) == 0 {
+		// Then try to look up the history data in the history store.
+		data, _ = db.Get(codeKey(hash))
+	}
+	// thunder_patch end
 	return data
 }
 
@@ -76,8 +107,19 @@ func DeleteCode(db ethdb.KeyValueWriter, hash common.Hash) {
 }
 
 // ReadTrieNode retrieves the trie node of the provided hash.
-func ReadTrieNode(db ethdb.KeyValueReader, hash common.Hash) []byte {
+// thunder_patch begin
+func ReadTrieNode(db ethdb.Reader, hash common.Hash) []byte {
+	// thunder_patch original
+	// func ReadTrieNode(db ethdb.KeyValueReader, hash common.Hash) []byte {
+	// thunder_patch end
+
 	data, _ := db.Get(hash.Bytes())
+	// thunder_patch begin
+	if len(data) == 0 {
+		// Then try to look up the history data in the history store.
+		data, _ = db.HistoryGet(hash.Bytes())
+	}
+	// thunder_patch end
 	return data
 }
 

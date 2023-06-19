@@ -311,6 +311,15 @@ func (b *LesApiBackend) ServiceFilter(ctx context.Context, session *bloombits.Ma
 	}
 }
 
+// thunder_patch begin
+func (b *LesApiBackend) GetClearingGasPrice() *big.Int {
+	// The light backend doesn't support validating the tx price, so we don't have such info.
+	// Background: Oracle.SuggestPrice() use the samples of recent history along with the clearing
+	// price made by voters to decide the value. Usually it's okay to just use the samples.
+	return big.NewInt(1)
+}
+
+// thunder_patch end
 func (b *LesApiBackend) Engine() consensus.Engine {
 	return b.eth.engine
 }

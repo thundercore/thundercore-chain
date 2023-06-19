@@ -142,6 +142,32 @@ func ActivePrecompiles(rules params.Rules) []common.Address {
 	}
 }
 
+// thunder_patch begin
+// PrecompiledThunderContract is like PrecompiledContract except gets evm/contract ref
+type PrecompiledThunderContract interface {
+	RequiredGas(input []byte) uint64                                // RequiredPrice calculates the contract gas use
+	Run(input []byte, evm *EVM, contract *Contract) ([]byte, error) // Run runs the precompiled contract
+}
+
+// N.B. thunder precompiled contracts have a lot of external dependencies making it
+// impractical to put them all in the vm module. So instead there is an init function in
+// thundervm module that sets up this map
+var PrecompiledContractsThunder func(evm *EVM) map[common.Address]PrecompiledThunderContract
+var AllThunderPrecompiledContracts map[common.Address]PrecompiledThunderContract
+
+// RunPrecompiledThunderContract runs and evaluates the output of a precompiled thunder contract.
+func RunPrecompiledThunderContract(
+	p PrecompiledThunderContract, input []byte, contract *Contract, evm *EVM,
+) (ret []byte, err error) {
+	gas := p.RequiredGas(input)
+	if contract.UseGas(gas) {
+		return p.Run(input, evm, contract)
+	}
+	return nil, ErrOutOfGas
+}
+
+// thunder_patch end
+
 // RunPrecompiledContract runs and evaluates the output of a precompiled contract.
 // It returns
 // - the returned bytes,

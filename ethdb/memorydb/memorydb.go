@@ -35,6 +35,11 @@ var (
 	// errMemorydbNotFound is returned if a key is requested that is not found in
 	// the provided memory database.
 	errMemorydbNotFound = errors.New("not found")
+
+	// thunder_patch begin
+	// errNotSupported is returned if the database doesn't support the required operation.
+	errNotSupported = errors.New("this operation is not supported")
+	// thunder_patch end
 )
 
 // Database is an ephemeral key-value store. Apart from basic data storage
@@ -120,6 +125,59 @@ func (db *Database) Delete(key []byte) error {
 	delete(db.db, string(key))
 	return nil
 }
+
+// thunder_patch begin
+// HasAncient returns an error as we don't have a backing chain freezer.
+func (db *Database) HasAncient(kind string, number uint64) (bool, error) {
+	return false, errNotSupported
+}
+
+// Ancient returns an error as we don't have a backing chain freezer.
+func (db *Database) Ancient(kind string, number uint64) ([]byte, error) {
+	return nil, errNotSupported
+}
+
+// ReadAncients returns an error as we don't have a backing chain freezer.
+func (db *Database) ReadAncients(kind string, start, max, maxByteSize uint64) ([][]byte, error) {
+	return nil, errNotSupported
+}
+
+// Ancients returns an error as we don't have a backing chain freezer.
+func (db *Database) Ancients() (uint64, error) {
+	return 0, errNotSupported
+}
+
+// AncientSize returns an error as we don't have a backing chain freezer.
+func (db *Database) AncientSize(kind string) (uint64, error) {
+	return 0, errNotSupported
+}
+
+// AppendAncient returns an error as we don't have a backing chain freezer.
+func (db *Database) AppendAncient(number uint64, hash, header, body, receipts, td []byte) error {
+	return errNotSupported
+}
+
+// TruncateAncients returns an error as we don't have a backing chain freezer.
+func (db *Database) TruncateAncients(items uint64) error {
+	return errNotSupported
+}
+
+// Sync returns an error as we don't have a backing chain freezer.
+func (db *Database) Sync() error {
+	return errNotSupported
+}
+
+// Sync returns an error as we don't have a backing chain history store.
+func (db *Database) HistoryHas(key []byte) (bool, error) {
+	return false, errNotSupported
+}
+
+// Sync returns an error as we don't have a backing chain history store.
+func (db *Database) HistoryGet(key []byte) ([]byte, error) {
+	return nil, errNotSupported
+}
+
+// thunder_patch end
 
 // NewBatch creates a write-only key-value store that buffers changes to its host
 // database until a final write is called.

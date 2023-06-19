@@ -66,6 +66,8 @@ type handler struct {
 	serverSubs map[ID]*Subscription
 }
 
+var ThunderLogRequest bool = false
+
 type callProc struct {
 	ctx       context.Context
 	notifiers []*Notifier
@@ -289,6 +291,23 @@ func (h *handler) handleResponse(msg *jsonrpcMessage) {
 // handleCallMsg executes a call message and returns the answer.
 func (h *handler) handleCallMsg(ctx *callProc, msg *jsonrpcMessage) *jsonrpcMessage {
 	start := time.Now()
+	if ThunderLogRequest {
+		defer func() {
+			if log.GetThunderLgr() != nil {
+				userAgent, _ := ctx.ctx.Value("User-Agent").(string)
+				remote := h.conn.remoteAddr()
+				reqInfo := map[string]interface{}{
+					"request":   msg,
+					"userAgent": userAgent,
+					"remote":    remote,
+					"timeSpent": time.Since(start).String(),
+				}
+				reqInfoInJson, _ := json.Marshal(reqInfo)
+				log.GetThunderLgr().Info("RpcRequestInfo: %v", string(reqInfoInJson))
+			}
+		}()
+	}
+
 	switch {
 	case msg.isNotification():
 		h.handleCall(ctx, msg)

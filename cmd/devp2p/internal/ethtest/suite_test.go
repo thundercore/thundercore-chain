@@ -35,6 +35,8 @@ var (
 )
 
 func TestEthSuite(t *testing.T) {
+	t.Skip("Thunder skip test. We implement our own network framework.")
+
 	geth, err := runGeth()
 	if err != nil {
 		t.Fatalf("could not run geth: %v", err)

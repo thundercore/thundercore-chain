@@ -21,10 +21,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
+	"math/big"
+	"os"
 	"testing"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/params"
 )
 
 // precompiledTest defines the input/output pairs for precompiled contract tests.
@@ -391,3 +394,12 @@ func BenchmarkPrecompiledBLS12381G2MultiExpWorstCase(b *testing.B) {
 	}
 	benchmarkPrecompiled("0f", testcase, b)
 }
+
+// thunder_patch begin
+func TestMain(m *testing.M) {
+	thunderConfig := params.ThunderConfigForTesting(big.NewInt(0), "london")
+	params.TestChainConfig.Thunder = thunderConfig
+	os.Exit(m.Run())
+}
+
+// thunder_patch end

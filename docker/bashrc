@@ -1,0 +1,8 @@
+# This is a bashrc when you execute bash attach to a container.
+# We can print some help to the users.
+echo This is a thunder container. You are running busybox + glibc + ash.
+echo tail -f /logs/thunder.log to see the thunder process log.
+
+# Set timezone to PST/PDT in the busybox env.
+TZ=PST8PDT,M3.2.0/2:00:00,M11.1.0/2:00:00
+export TZ

@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sync/atomic"
 	"time"
 
@@ -31,6 +32,71 @@ import (
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/olekukonko/tablewriter"
 )
+
+// thunder_patch begin
+// historydb is a database wrapper that enabled history data retrievals.
+type historydb struct {
+	ethdb.KeyValueStore
+	ethdb.HistoryStore
+}
+
+// Close implements io.Closer, closing both the fast key-value store as well as
+// the history stores.
+func (hsdb *historydb) Close() error {
+	var errs []error
+	if err := hsdb.HistoryStore.Close(); err != nil {
+		errs = append(errs, err)
+	}
+	if err := hsdb.KeyValueStore.Close(); err != nil {
+		errs = append(errs, err)
+	}
+	if len(errs) != 0 {
+		return fmt.Errorf("%v", errs)
+	}
+	return nil
+}
+
+// HasAncient returns an error as we don't have a backing chain freezer.
+func (hsdb *historydb) HasAncient(kind string, number uint64) (bool, error) {
+	return false, errNotSupported
+}
+
+// Ancient returns an error as we don't have a backing chain freezer.
+func (hsdb *historydb) Ancient(kind string, number uint64) ([]byte, error) {
+	return nil, errNotSupported
+}
+
+// ReadAncients returns an error as we don't have a backing chain freezer.
+func (hsdb *historydb) ReadAncients(kind string, start, max, maxByteSize uint64) ([][]byte, error) {
+	return nil, errNotSupported
+}
+
+// Ancients returns an error as we don't have a backing chain freezer.
+func (hsdb *historydb) Ancients() (uint64, error) {
+	return 0, errNotSupported
+}
+
+// AncientSize returns an error as we don't have a backing chain freezer.
+func (hsdb *historydb) AncientSize(kind string) (uint64, error) {
+	return 0, errNotSupported
+}
+
+// AppendAncient returns an error as we don't have a backing chain freezer.
+func (hsdb *historydb) AppendAncient(number uint64, hash, header, body, receipts, td []byte) error {
+	return errNotSupported
+}
+
+// TruncateAncients returns an error as we don't have a backing chain freezer.
+func (hsdb *historydb) TruncateAncients(items uint64) error {
+	return errNotSupported
+}
+
+// Sync returns an error as we don't have a backing chain freezer.
+func (hsdb *historydb) Sync() error {
+	return errNotSupported
+}
+
+// thunder_patch end
 
 // freezerdb is a database wrapper that enabled freezer data retrievals.
 type freezerdb struct {
@@ -73,6 +139,19 @@ func (frdb *freezerdb) Freeze(threshold uint64) error {
 	<-trigger
 	return nil
 }
+
+// thunder_patch begin
+// Sync returns an error as we don't have a backing chain history store.
+func (frdb *freezerdb) HistoryHas(key []byte) (bool, error) {
+	return false, errNotSupported
+}
+
+// Sync returns an error as we don't have a backing chain history store.
+func (frdb *freezerdb) HistoryGet(key []byte) ([]byte, error) {
+	return nil, errNotSupported
+}
+
+// thunder_patch end
 
 // nofreezedb is a database wrapper that disables freezer data retrievals.
 type nofreezedb struct {
@@ -119,6 +198,19 @@ func (db *nofreezedb) Sync() error {
 	return errNotSupported
 }
 
+// thunder_patch begin
+// Sync returns an error as we don't have a backing chain history store.
+func (db *nofreezedb) HistoryHas(key []byte) (bool, error) {
+	return false, errNotSupported
+}
+
+// Sync returns an error as we don't have a backing chain history store.
+func (db *nofreezedb) HistoryGet(key []byte) ([]byte, error) {
+	return nil, errNotSupported
+}
+
+// thunder_patch end
+
 // NewDatabase creates a high level database on top of a given key-value data
 // store without a freezer moving immutable chain segments into cold storage.
 func NewDatabase(db ethdb.KeyValueStore) ethdb.Database {
@@ -158,6 +250,10 @@ func NewDatabaseWithFreezer(db ethdb.KeyValueStore, freezer string, namespace st
 	// If the genesis hash is empty, we have a new key-value store, so nothing to
 	// validate in this method. If, however, the genesis hash is not nil, compare
 	// it to the freezer content.
+	// thunder_patch begin
+	// Wrap KV Store as a default Database.
+	defaultDb := NewDatabase(db)
+	// thunder_patch end
 	if kvgenesis, _ := db.Get(headerHashKey(0)); len(kvgenesis) > 0 {
 		if frozen, _ := frdb.Ancients(); frozen > 0 {
 			// If the freezer already contains something, ensure that the genesis blocks
@@ -174,7 +270,11 @@ func NewDatabaseWithFreezer(db ethdb.KeyValueStore, freezer string, namespace st
 			if kvhash, _ := db.Get(headerHashKey(frozen)); len(kvhash) == 0 {
 				// Subsequent header after the freezer limit is missing from the database.
 				// Reject startup is the database has a more recent head.
-				if *ReadHeaderNumber(db, ReadHeadHeaderHash(db)) > frozen-1 {
+				// thunder_patch begin
+				if *ReadHeaderNumber(defaultDb, ReadHeadHeaderHash(defaultDb)) > frozen-1 {
+					// thunder_patch original
+					// if *ReadHeaderNumber(db, ReadHeadHeaderHash(db)) > frozen-1 {
+					// thunder_patch end
 					return nil, fmt.Errorf("gap (#%d) in the chain between ancients and leveldb", frozen)
 				}
 				// Database contains only older data than the freezer, this happens if the
@@ -188,7 +288,11 @@ func NewDatabaseWithFreezer(db ethdb.KeyValueStore, freezer string, namespace st
 			// store, otherwise we'll end up missing data. We check block #1 to decide
 			// if we froze anything previously or not, but do take care of databases with
 			// only the genesis block.
-			if ReadHeadHeaderHash(db) != common.BytesToHash(kvgenesis) {
+			// thunder_patch begin
+			if ReadHeadHeaderHash(defaultDb) != common.BytesToHash(kvgenesis) {
+				// thunder_patch original
+				// if ReadHeadHeaderHash(db) != common.BytesToHash(kvgenesis) {
+				// thunder_patch end
 				// Key-value store contains more data than the genesis block, make sure we
 				// didn't freeze anything yet.
 				if kvblob, _ := db.Get(headerHashKey(1)); len(kvblob) == 0 {
@@ -236,6 +340,49 @@ func NewLevelDBDatabase(file string, cache int, handles int, namespace string, r
 	}
 	return NewDatabase(db), nil
 }
+
+// thunder_patch begin
+// NewHistoryDatabase a persistent key-value database with cold storages by passing instance
+func NewHistoryDatabase(db ethdb.KeyValueStore, history ethdb.HistoryStore) ethdb.Database {
+	return &historydb{
+		KeyValueStore: db,
+		HistoryStore:  history,
+	}
+}
+
+// NewHistoryDatabaseWithDBListInstance a persistent key-value database with cold storages by passing dblist instance
+func NewHistoryDatabaseWithDBListInstance(db ethdb.KeyValueStore, dbList []ethdb.KeyValueStore) ethdb.Database {
+	return &historydb{
+		KeyValueStore: db,
+		HistoryStore: &history{
+			dbList: dbList,
+		},
+	}
+}
+
+// NewLevelDBDatabaseWithHistory creates a persistent key-value database with cold storages which are immutable chain segments.
+func NewLevelDBDatabaseWithHistory(rootPath string, defaultDir string, orderList string, cache int, handles int, namespace string, readonly bool) (ethdb.Database, error) {
+	db, err := leveldb.New(filepath.Join(rootPath, defaultDir), cache, handles, namespace, readonly)
+	if err != nil {
+		return nil, err
+	}
+	var hsdb ethdb.HistoryStore
+	// HistoryStore only support readonly mode
+	if orderList == "" {
+		hsdb, err = newReadonlyDefaultHistory(rootPath, defaultDir, cache, handles, namespace)
+	} else {
+		hsdb, err = newReadonlyOrderListHistory(rootPath, orderList, cache, handles, namespace)
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &historydb{
+		KeyValueStore: db,
+		HistoryStore:  hsdb,
+	}, nil
+}
+
+// thunder_patch end
 
 // NewLevelDBDatabaseWithFreezer creates a persistent key-value database with a
 // freezer moving immutable chain segments into cold storage.

@@ -84,6 +84,8 @@ func TestForkIDSplit65(t *testing.T) { testForkIDSplit(t, eth.ETH65) }
 func TestForkIDSplit66(t *testing.T) { testForkIDSplit(t, eth.ETH66) }
 
 func testForkIDSplit(t *testing.T, protocol uint) {
+	t.Skip("Thunder skip eth network test")
+
 	t.Parallel()
 
 	var (
@@ -240,6 +242,8 @@ func TestRecvTransactions65(t *testing.T) { testRecvTransactions(t, eth.ETH65) }
 func TestRecvTransactions66(t *testing.T) { testRecvTransactions(t, eth.ETH66) }
 
 func testRecvTransactions(t *testing.T, protocol uint) {
+	t.Skip("Thunder skip eth network test")
+
 	t.Parallel()
 
 	// Create a message handler, configure it to accept transactions and watch them
@@ -298,6 +302,8 @@ func TestSendTransactions65(t *testing.T) { testSendTransactions(t, eth.ETH65) }
 func TestSendTransactions66(t *testing.T) { testSendTransactions(t, eth.ETH66) }
 
 func testSendTransactions(t *testing.T, protocol uint) {
+	t.Skip("Thunder skip eth network test")
+
 	t.Parallel()
 
 	// Create a message handler and fill the pool with big transactions
@@ -384,6 +390,8 @@ func TestTransactionPropagation65(t *testing.T) { testTransactionPropagation(t, 
 func TestTransactionPropagation66(t *testing.T) { testTransactionPropagation(t, eth.ETH66) }
 
 func testTransactionPropagation(t *testing.T, protocol uint) {
+	t.Skip("Thunder skip eth network test")
+
 	t.Parallel()
 
 	// Create a source handler to send transactions from and a number of sinks
@@ -490,6 +498,8 @@ func TestCheckpointChallenge(t *testing.T) {
 }
 
 func testCheckpointChallenge(t *testing.T, syncmode downloader.SyncMode, checkpoint bool, timeout bool, empty bool, match bool, drop bool) {
+	t.Skip("Thunder skip eth network test")
+
 	t.Parallel()
 
 	// Reduce the checkpoint handshake challenge timeout
@@ -596,6 +606,8 @@ func TestBroadcastBloc26Peers(t *testing.T)   { testBroadcastBlock(t, 26, 5) }
 func TestBroadcastBlock100Peers(t *testing.T) { testBroadcastBlock(t, 100, 10) }
 
 func testBroadcastBlock(t *testing.T, peers, bcasts int) {
+	t.Skip("Thunder skip eth network test")
+
 	t.Parallel()
 
 	// Create a source handler to broadcast blocks from and a number of sinks
@@ -675,6 +687,8 @@ func TestBroadcastMalformedBlock65(t *testing.T) { testBroadcastMalformedBlock(t
 func TestBroadcastMalformedBlock66(t *testing.T) { testBroadcastMalformedBlock(t, eth.ETH66) }
 
 func testBroadcastMalformedBlock(t *testing.T, protocol uint) {
+	t.Skip("Thunder skip eth network test")
+
 	t.Parallel()
 
 	// Create a source handler to broadcast blocks from and a number of sinks

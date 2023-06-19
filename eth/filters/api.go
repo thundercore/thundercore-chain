@@ -56,16 +56,27 @@ type PublicFilterAPI struct {
 	filtersMu sync.Mutex
 	filters   map[rpc.ID]*filter
 	timeout   time.Duration
+	// thunder_patch begin
+	maxRpcLogsBlockRange int64
+	// thunder_patch end
 }
 
 // NewPublicFilterAPI returns a new PublicFilterAPI instance.
-func NewPublicFilterAPI(backend Backend, lightMode bool, timeout time.Duration) *PublicFilterAPI {
+// thunder_patch begin
+func NewPublicFilterAPI(backend Backend, lightMode bool, timeout time.Duration, maxRpcLogsBlockRange int64) *PublicFilterAPI {
+	// thunder_patch original
+	// func NewPublicFilterAPI(backend Backend, lightMode bool, timeout time.Duration) *PublicFilterAPI {
+	// thunder_patch end
 	api := &PublicFilterAPI{
 		backend: backend,
 		chainDb: backend.ChainDb(),
 		events:  NewEventSystem(backend, lightMode),
 		filters: make(map[rpc.ID]*filter),
 		timeout: timeout,
+
+		// thunder_patch begin
+		maxRpcLogsBlockRange: maxRpcLogsBlockRange,
+		// thunder_patch end
 	}
 	go api.timeoutLoop(timeout)
 
@@ -346,7 +357,11 @@ func (api *PublicFilterAPI) GetLogs(ctx context.Context, crit FilterCriteria) ([
 			end = crit.ToBlock.Int64()
 		}
 		// Construct the range filter
-		filter = NewRangeFilter(api.backend, begin, end, crit.Addresses, crit.Topics)
+		// thunder_patch begin
+		filter = NewRangeFilter(api.backend, begin, end, crit.Addresses, crit.Topics, api.maxRpcLogsBlockRange)
+		// thunder_patch original
+		// filter = NewRangeFilter(api.backend, begin, end, crit.Addresses, crit.Topics)
+		// thunder_patch end
 	}
 	// Run the filter and return all the logs
 	logs, err := filter.Logs(ctx)
@@ -401,7 +416,11 @@ func (api *PublicFilterAPI) GetFilterLogs(ctx context.Context, id rpc.ID) ([]*ty
 			end = f.crit.ToBlock.Int64()
 		}
 		// Construct the range filter
-		filter = NewRangeFilter(api.backend, begin, end, f.crit.Addresses, f.crit.Topics)
+		// thunder_patch begin
+		filter = NewRangeFilter(api.backend, begin, end, f.crit.Addresses, f.crit.Topics, api.maxRpcLogsBlockRange)
+		// thunder_patch original
+		// filter = NewRangeFilter(api.backend, begin, end, f.crit.Addresses, f.crit.Topics)
+		// thunder_patch end
 	}
 	// Run the filter and return all the logs
 	logs, err := filter.Logs(ctx)

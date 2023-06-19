@@ -122,7 +122,12 @@ func (batch *syncMemBatch) hasCode(hash common.Hash) bool {
 // unknown trie hashes to retrieve, accepts node data associated with said hashes
 // and reconstructs the trie step by step until all is done.
 type Sync struct {
-	database ethdb.KeyValueReader     // Persistent database to check for existing entries
+	// thunder_patch begin
+	database ethdb.Reader // Persistent database to check for existing entries
+	// thunder_patch original
+	// database ethdb.KeyValueReader     // Persistent database to check for existing entries
+	// thunder_patch end
+
 	membatch *syncMemBatch            // Memory buffer to avoid frequent database writes
 	nodeReqs map[common.Hash]*request // Pending requests pertaining to a trie node hash
 	codeReqs map[common.Hash]*request // Pending requests pertaining to a code hash
@@ -132,7 +137,12 @@ type Sync struct {
 }
 
 // NewSync creates a new trie data download scheduler.
-func NewSync(root common.Hash, database ethdb.KeyValueReader, callback LeafCallback, bloom *SyncBloom) *Sync {
+// thunder_patch begin
+func NewSync(root common.Hash, database ethdb.Reader, callback LeafCallback, bloom *SyncBloom) *Sync {
+	// thunder_patch original
+	// func NewSync(root common.Hash, database ethdb.KeyValueReader, callback LeafCallback, bloom *SyncBloom) *Sync {
+	// thunder_patch end
+
 	ts := &Sync{
 		database: database,
 		membatch: newSyncMemBatch(),

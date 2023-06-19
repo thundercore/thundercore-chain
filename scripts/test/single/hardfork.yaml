@@ -1,0 +1,74 @@
+- blocknum: 0
+  session: 0
+  desc: "Default Value before any hardfork"
+  committee:
+      electionScheme: "TopKCandidates"
+      electVersion: ""
+      expectedCommSize: 4
+      minBidderStake: 1E+23
+      minCommitteeSize: 1
+      minGasBidPrice: 1E+7
+      verifyBid: true
+      voteCountingScheme: "Stake"
+      proposerList: ""
+      rewardScheme: "pala-r2.1"
+      vaultGasUnlimited: true
+      rewardRatio: 50
+  protocol:
+      blockGasLimit: 1E+8
+      maxCodeSize: 40960
+      gasTable: ""
+      baseFee: 0
+      inflation: 0
+  vault:
+      burnReward: false
+  trustedRNG:
+      rngActive: false
+      version: "v1"
+  pala:
+      hardfork: false
+  election:
+      stopBlockSessionOffset: 25
+  evm:
+    version: ""
+  consensus:
+      infoInHeader: true
+      k: 1
+  precompiled:
+      blockSnGetterActive: true
+      vaultVersion: ""
+      revertDelegateCall: false
+
+- blocknum: 1
+  session: 1
+  desc: "Pala hardfork"
+  pala:
+      hardfork: true
+  evm:
+    version: "london"
+  protocol:
+      gasTable: "pala-r2.1"
+    #   baseFee: 1e+10
+  trustedRNG:
+      rngActive: true
+  vault:
+      burnReward: false
+
+- session: 2
+  precompiled:
+    blockSnGetterActive: true
+  consensus:
+    k: 3
+  protocol:
+    baseFee: 1e+10 # 10gwei
+    inflation: 15e+18
+  committee:
+    rewardRatio: 90
+    rewardScheme: "inflation"
+
+- session: 3
+  precompiled:
+      vaultVersion: "r3"
+      revertDelegateCall: true
+  committee:
+    electVersion: "r3"

@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU Lesser General Public License
 // along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
+//go:build none
 // +build none
 
 /*
@@ -259,6 +260,7 @@ func buildFlags(env build.Environment) (flags []string) {
 	if env.Commit != "" {
 		ld = append(ld, "-X", "main.gitCommit="+env.Commit)
 		ld = append(ld, "-X", "main.gitDate="+env.Date)
+		ld = append(ld, "-X", "github.com/ethereum/go-ethereum/thunder/thunderella/libs/commitsha1.CommitSha1="+env.Commit)
 	}
 	// Strip DWARF on darwin. This used to be required for certain things,
 	// and there is no downside to this, so we just keep doing it.
@@ -282,6 +284,9 @@ func doTest(cmdline []string) {
 		cc       = flag.String("cc", "", "Sets C compiler binary")
 		coverage = flag.Bool("coverage", false, "Whether to record code coverage")
 		verbose  = flag.Bool("v", false, "Whether to log verbosely")
+		// thunder_patch begin
+		tags = flag.String("tags", "", "Sets tags for test")
+		// thunder_patch end
 	)
 	flag.CommandLine.Parse(cmdline)
 
@@ -302,6 +307,12 @@ func doTest(cmdline []string) {
 	if *verbose {
 		gotest.Args = append(gotest.Args, "-v")
 	}
+
+	// thunder_patch begin
+	if *tags != "" {
+		gotest.Args = append(gotest.Args, "-tags", *tags)
+	}
+	// thunder_patch end
 
 	packages := []string{"./..."}
 	if len(flag.CommandLine.Args()) > 0 {

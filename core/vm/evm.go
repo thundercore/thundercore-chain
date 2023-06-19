@@ -57,6 +57,41 @@ func (evm *EVM) precompile(addr common.Address) (PrecompiledContract, bool) {
 	return p, ok
 }
 
+// thunder_patch begin
+func (evm *EVM) thunderPrecompile(addr common.Address) (PrecompiledThunderContract, bool) {
+	if PrecompiledContractsThunder == nil {
+		return nil, false
+	}
+	thunderPrecompiles := PrecompiledContractsThunder(evm)
+	p, ok := thunderPrecompiles[addr]
+	return p, ok
+}
+
+func runDelegateCall(evm *EVM, contract *Contract, input []byte, readOnly bool) ([]byte, error) {
+	// use thunder precompiled contracts and pass in EVM ref when calling
+	if contract.CodeAddr != nil {
+		p, ok := evm.thunderPrecompile(*contract.CodeAddr)
+		if p != nil && ok {
+			return []byte{}, ErrDelegateCallUnsupported
+		}
+	}
+	return evm.interpreter.Run(contract, input, readOnly)
+}
+
+// run runs the given contract and takes care of running precompiles with a fallback to the byte code interpreter.
+func run(evm *EVM, contract *Contract, input []byte, readOnly bool) ([]byte, error) {
+	// use thunder precompiled contracts and pass in EVM ref when calling
+	if contract.CodeAddr != nil {
+		p, ok := evm.thunderPrecompile(*contract.CodeAddr)
+		if p != nil && ok {
+			return RunPrecompiledThunderContract(p, input, contract, evm)
+		}
+	}
+	return evm.interpreter.Run(contract, input, readOnly)
+}
+
+// thunder_patch end
+
 // BlockContext provides the EVM with auxiliary information. Once provided
 // it shouldn't be modified.
 type BlockContext struct {
@@ -74,7 +109,10 @@ type BlockContext struct {
 	BlockNumber *big.Int       // Provides information for NUMBER
 	Time        *big.Int       // Provides information for TIME
 	Difficulty  *big.Int       // Provides information for DIFFICULTY
-	BaseFee     *big.Int       // Provides information for BASEFEE
+	// thunder_patch_begin
+	MixDigest common.Hash // Provides information for random number generation
+	// thunder_patch_end
+	BaseFee *big.Int // Provides information for BASEFEE
 }
 
 // TxContext provides the EVM with information about a transaction.
@@ -84,6 +122,13 @@ type TxContext struct {
 	Origin   common.Address // Provides information for ORIGIN
 	GasPrice *big.Int       // Provides information for GASPRICE
 }
+
+// thunder_patch begin
+func (ctx *TxContext) GetGasPrice() *big.Int {
+	return ctx.GasPrice
+}
+
+// thunder_patch end
 
 // EVM is the Ethereum Virtual Machine base object and provides
 // the necessary tools to run a contract on the given state with
@@ -125,13 +170,20 @@ type EVM struct {
 // NewEVM returns a new EVM. The returned EVM is not thread safe and should
 // only ever be used *once*.
 func NewEVM(blockCtx BlockContext, txCtx TxContext, statedb StateDB, chainConfig *params.ChainConfig, config Config) *EVM {
+	// thunder_patch begin
+	thunderConfig := chainConfig.Thunder
+	session := thunderConfig.GetSessionFromDifficulty(blockCtx.Difficulty, blockCtx.BlockNumber, thunderConfig)
+	// thunder_patch end
+
 	evm := &EVM{
 		Context:     blockCtx,
 		TxContext:   txCtx,
 		StateDB:     statedb,
 		Config:      config,
 		chainConfig: chainConfig,
-		chainRules:  chainConfig.Rules(blockCtx.BlockNumber),
+		// thunder_patch begin
+		chainRules: chainConfig.Rules(blockCtx.BlockNumber, session),
+		// thunder_patch end
 	}
 	evm.interpreter = NewEVMInterpreter(evm, config)
 	return evm
@@ -178,9 +230,16 @@ func (evm *EVM) Call(caller ContractRef, addr common.Address, input []byte, gas 
 	}
 	snapshot := evm.StateDB.Snapshot()
 	p, isPrecompile := evm.precompile(addr)
+	// thunder_patch begin
+	_, isThunderPreCompiledContract := evm.thunderPrecompile(addr)
+	// thunder_patch end
 
 	if !evm.StateDB.Exist(addr) {
-		if !isPrecompile && evm.chainRules.IsEIP158 && value.Sign() == 0 {
+		// thunder_patch begin
+		if !isPrecompile && !isThunderPreCompiledContract && evm.chainRules.IsEIP158 && value.Sign() == 0 {
+			// thunder_patch origin
+			// if !isPrecompile && evm.chainRules.IsEIP158 && value.Sign() == 0 {
+			// thunder_patch end
 			// Calling a non existing account, don't do anything, but ping the tracer
 			if evm.Config.Debug && evm.depth == 0 {
 				evm.Config.Tracer.CaptureStart(evm, caller.Address(), addr, false, input, gas, value)
@@ -206,7 +265,11 @@ func (evm *EVM) Call(caller ContractRef, addr common.Address, input []byte, gas 
 		// Initialise a new contract and set the code that is to be used by the EVM.
 		// The contract is a scoped environment for this execution context only.
 		code := evm.StateDB.GetCode(addr)
-		if len(code) == 0 {
+		// thunder_patch begin
+		if !isThunderPreCompiledContract && len(code) == 0 {
+			// thunder_patch original
+			// if len(code) == 0 {
+			// thunder_patch end
 			ret, err = nil, nil // gas is unchanged
 		} else {
 			addrCopy := addr
@@ -214,7 +277,11 @@ func (evm *EVM) Call(caller ContractRef, addr common.Address, input []byte, gas 
 			// The depth-check is already done, and precompiles handled above
 			contract := NewContract(caller, AccountRef(addrCopy), value, gas)
 			contract.SetCallCode(&addrCopy, evm.StateDB.GetCodeHash(addrCopy), code)
-			ret, err = evm.interpreter.Run(contract, input, false)
+			// thunder_patch begin
+			ret, err = run(evm, contract, input, false)
+			// thunder_patch original
+			// ret, err = evm.interpreter.Run(contract, input, false)
+			// thunder_patch end
 			gas = contract.Gas
 		}
 	}
@@ -266,7 +333,11 @@ func (evm *EVM) CallCode(caller ContractRef, addr common.Address, input []byte, 
 		// The contract is a scoped environment for this execution context only.
 		contract := NewContract(caller, AccountRef(caller.Address()), value, gas)
 		contract.SetCallCode(&addrCopy, evm.StateDB.GetCodeHash(addrCopy), evm.StateDB.GetCode(addrCopy))
-		ret, err = evm.interpreter.Run(contract, input, false)
+		// thunder_patch begin
+		ret, err = run(evm, contract, input, false)
+		// thunder_patch original
+		// ret, err = evm.interpreter.Run(contract, input, false)
+		// thunder_patch end
 		gas = contract.Gas
 	}
 	if err != nil {
@@ -301,7 +372,18 @@ func (evm *EVM) DelegateCall(caller ContractRef, addr common.Address, input []by
 		// Initialise a new contract and make initialise the delegate values
 		contract := NewContract(caller, AccountRef(caller.Address()), nil, gas).AsDelegate()
 		contract.SetCallCode(&addrCopy, evm.StateDB.GetCodeHash(addrCopy), evm.StateDB.GetCode(addrCopy))
-		ret, err = evm.interpreter.Run(contract, input, false)
+		// thunder_patch begin
+		thunderConfig := evm.ChainConfig().Thunder
+		session := thunderConfig.GetSessionFromDifficulty(evm.Context.Difficulty, evm.Context.BlockNumber, thunderConfig)
+
+		if thunderConfig.TPCRevertDelegateCall.GetValueAtSession(int64(session)) {
+			ret, err = runDelegateCall(evm, contract, input, false)
+		} else {
+			ret, err = run(evm, contract, input, false)
+		}
+		// thunder_patch original
+		// ret, err = evm.interpreter.Run(contract, input, false)
+		// thunder_patch end
 		gas = contract.Gas
 	}
 	if err != nil {
@@ -352,7 +434,13 @@ func (evm *EVM) StaticCall(caller ContractRef, addr common.Address, input []byte
 		// When an error was returned by the EVM or when setting the creation code
 		// above we revert to the snapshot and consume any gas remaining. Additionally
 		// when we're in Homestead this also counts for code storage gas errors.
-		ret, err = evm.interpreter.Run(contract, input, true)
+
+		// thunder_patch begin
+		ret, err = run(evm, contract, input, true)
+		// thunder_patch original
+		// ret, err = evm.interpreter.Run(contract, input, true)
+		// thunder_patch end
+
 		gas = contract.Gas
 	}
 	if err != nil {
@@ -420,12 +508,27 @@ func (evm *EVM) create(caller ContractRef, codeAndHash *codeAndHash, gas uint64,
 	}
 	start := time.Now()
 
-	ret, err := evm.interpreter.Run(contract, nil, false)
+	// thunder_patch begin
+	ret, err := run(evm, contract, nil, false)
+	// thunder_patch original
+	// ret, err = evm.interpreter.Run(contract, nil, false)
+	// thunder_patch end
 
-	// Check whether the max code size has been exceeded, assign err if the case.
-	if err == nil && evm.chainRules.IsEIP158 && len(ret) > params.MaxCodeSize {
+	// check whether the max code size has been exceeded
+	// thunder_patch begin
+	thunderConfig := evm.ChainConfig().Thunder
+	session := thunderConfig.GetSessionFromDifficulty(evm.Context.Difficulty, evm.Context.BlockNumber, thunderConfig)
+	maxCodeSize := thunderConfig.MaxCodeSize.GetValueAtSession(int64(session))
+	maxCodeSizeExceeded := len(ret) > int(maxCodeSize)
+	if err == nil && evm.chainRules.IsEIP158 && maxCodeSizeExceeded {
 		err = ErrMaxCodeSizeExceeded
 	}
+	// thunder_patch original
+	// Check whether the max code size has been exceeded, assign err if the case.
+	// if err == nil && evm.chainRules.IsEIP158 && len(ret) > params.MaxCodeSize {
+	// 	err = ErrMaxCodeSizeExceeded
+	// }
+	// thunder_patch end
 
 	// Reject code starting with 0xEF if EIP-3541 is enabled.
 	if err == nil && len(ret) >= 1 && ret[0] == 0xEF && evm.chainRules.IsLondon {

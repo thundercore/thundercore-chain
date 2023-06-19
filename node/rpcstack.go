@@ -19,15 +19,21 @@ package node
 import (
 	"compress/gzip"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"net"
 	"net/http"
+	"os"
+	"path"
+	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/rpc"
@@ -244,6 +250,39 @@ func (h *httpServer) stop() {
 	h.doStop()
 }
 
+// thunder_patch begin
+func dumpOpenFds() error {
+	pid := strconv.Itoa(os.Getpid())
+	fdDir := path.Join("/proc", pid, "fd")
+	files, err := ioutil.ReadDir(fdDir)
+	if err != nil {
+		return err
+	}
+
+	log.Debug("dump process opened fds", "pid", pid, "total", len(files))
+	for _, f := range files {
+		path := path.Join(fdDir, f.Name())
+		target, err := os.Readlink(path)
+		if err != nil {
+			// Maybe fd was closed coincidentally.
+			continue
+		}
+		msg := fmt.Sprintf("%s -> %s", path, target)
+		log.Debug("dump process opened fds", "fd", msg)
+	}
+
+	return nil
+}
+
+func dumpGoroutineStack() error {
+	buf := make([]byte, 1<<16)
+	stackSize := runtime.Stack(buf, true)
+	log.Debug("dump goroutine stack", string(buf[0:stackSize]), nil)
+	return nil
+}
+
+// thunder_patch end
+
 func (h *httpServer) doStop() {
 	if h.listener == nil {
 		return // not running
@@ -260,7 +299,19 @@ func (h *httpServer) doStop() {
 		h.wsHandler.Store((*rpcHandler)(nil))
 		wsHandler.server.Stop()
 	}
-	h.server.Shutdown(context.Background())
+	// thunder_patch begin
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := h.server.Shutdown(ctx); err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			log.Error("shut down HTTP server timeout")
+			dumpOpenFds()
+			dumpGoroutineStack()
+		}
+	}
+	// thunder_patch original
+	// h.server.Shutdown(context.Background())
+	// thunder_patch end
 	h.listener.Close()
 	h.log.Info("HTTP server stopped", "endpoint", h.listener.Addr())
 

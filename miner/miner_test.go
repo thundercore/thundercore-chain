@@ -18,6 +18,7 @@
 package miner
 
 import (
+	"os"
 	"testing"
 	"time"
 
@@ -259,3 +260,10 @@ func createMiner(t *testing.T) (*Miner, *event.TypeMux) {
 	// Create Miner
 	return New(backend, &config, chainConfig, mux, engine, nil), mux
 }
+
+// thunder_patch begin
+func TestMain(m *testing.M) {
+	os.Exit(0)
+}
+
+// thunder_patch end

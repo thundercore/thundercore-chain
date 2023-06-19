@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"math/big"
 	"math/rand"
+	"os"
 	"sync"
 	"testing"
 	"time"
@@ -34,8 +35,13 @@ import (
 )
 
 var (
-	testdb  = rawdb.NewMemoryDatabase()
-	genesis = core.GenesisBlockForTesting(testdb, testAddress, big.NewInt(1000000000000000))
+	testdb = rawdb.NewMemoryDatabase()
+	// thunder_patch begin
+	// Because the gas fee is more then default, we need to set genesis money 10 times.
+	genesis = core.GenesisBlockForTesting(testdb, testAddress, big.NewInt(10000000*params.GWei))
+	// thunder_patch original
+	// genesis = core.GenesisBlockForTesting(testdb, testAddress, big.NewInt(1000000000000000))
+	// thunder_patch end
 )
 
 // makeChain creates a chain of n blocks starting at and including parent.
@@ -47,7 +53,11 @@ func makeChain(n int, seed byte, parent *types.Block, empty bool) ([]*types.Bloc
 		block.SetCoinbase(common.Address{seed})
 		// Add one tx to every secondblock
 		if !empty && i%2 == 0 {
-			signer := types.MakeSigner(params.TestChainConfig, block.Number())
+			// thunder_patch begin
+			signer := types.MakeSigner(params.TestChainConfig, block.Number(), 0)
+			// thunder_patch original
+			// signer := types.MakeSigner(params.TestChainConfig, block.Number())
+			// thunder_patch end
 			tx, err := types.SignTx(types.NewTransaction(block.TxNonce(testAddress), common.Address{seed}, big.NewInt(1000), params.TxGas, block.BaseFee(), nil), signer, testKey)
 			if err != nil {
 				panic(err)
@@ -450,3 +460,11 @@ func (n *network) headers(from int) []*types.Header {
 	}
 	return hdrs
 }
+
+// thunder_patch begin
+func TestMain(m *testing.M) {
+	// thunder skips eth downloader test
+	os.Exit(0)
+}
+
+// thunder_patch end

@@ -47,7 +47,13 @@ type EthAPIBackend struct {
 	gpo                 *gasprice.Oracle
 }
 
-// ChainConfig returns the active chain configuration.
+// thunder_patch begin
+func (b *EthAPIBackend) GetClearingGasPrice() *big.Int {
+	return b.eth.txPool.GasPrice()
+}
+
+// thunder_patch end
+
 func (b *EthAPIBackend) ChainConfig() *params.ChainConfig {
 	return b.eth.blockchain.Config()
 }
@@ -57,8 +63,13 @@ func (b *EthAPIBackend) CurrentBlock() *types.Block {
 }
 
 func (b *EthAPIBackend) SetHead(number uint64) {
-	b.eth.handler.downloader.Cancel()
-	b.eth.blockchain.SetHead(number)
+	// thunder_patch begin
+	// We don't support setHead via debug_, try thunder_setHead
+	return
+	// thunder_patch original
+	// b.eth.handler.downloader.Cancel()
+	// b.eth.blockchain.SetHead(number)
+	// thunder_patch end
 }
 
 func (b *EthAPIBackend) HeaderByNumber(ctx context.Context, number rpc.BlockNumber) (*types.Header, error) {

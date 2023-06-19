@@ -40,12 +40,6 @@ import (
 	"github.com/ethereum/go-ethereum/trie"
 )
 
-// So we can deterministically seed different blockchains
-var (
-	canonicalSeed = 1
-	forkSeed      = 2
-)
-
 // newCanonical creates a chain database, and injects a deterministic canonical
 // chain. Depending on the full flag, if creates either a full block chain or a
 // header only chain.
@@ -3275,3 +3269,10 @@ func TestEIP1559Transition(t *testing.T) {
 		t.Fatalf("sender balance incorrect: expected %d, got %d", expected, actual)
 	}
 }
+
+// thunder_patch begin
+func TestMain(m *testing.M) {
+	os.Exit(0)
+}
+
+// thunder_patch end

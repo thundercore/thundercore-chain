@@ -1186,7 +1186,11 @@ func (r *Resolver) Logs(ctx context.Context, args struct{ Filter FilterCriteria 
 		topics = *args.Filter.Topics
 	}
 	// Construct the range filter
-	filter := filters.NewRangeFilter(filters.Backend(r.backend), begin, end, addresses, topics)
+	// thunder_patch begin
+	filter := filters.NewRangeFilter(filters.Backend(r.backend), begin, end, addresses, topics, -1)
+	// thunder_patch original
+	// filter := filters.NewRangeFilter(filters.Backend(r.backend), begin, end, addresses, topics)
+	// thunder_patch end
 	return runFilter(ctx, r.backend, filter)
 }
 

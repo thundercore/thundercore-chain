@@ -76,8 +76,10 @@ type Table struct {
 	net        transport
 	refreshReq chan chan struct{}
 	initDone   chan struct{}
-	closeReq   chan struct{}
-	closed     chan struct{}
+
+	closeOnce sync.Once
+	closeReq  chan struct{}
+	closed    chan struct{}
 
 	nodeAddedHook func(*node) // for testing
 }

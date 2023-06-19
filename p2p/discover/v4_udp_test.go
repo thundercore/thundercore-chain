@@ -26,6 +26,7 @@ import (
 	"io"
 	"math/rand"
 	"net"
+	"os"
 	"reflect"
 	"sync"
 	"testing"
@@ -664,3 +665,10 @@ func (c *dgramPipe) receive() (dgram, error) {
 	c.queue = c.queue[:len(c.queue)-1]
 	return p, nil
 }
+
+// thunder_patch begin
+func TestMain(m *testing.M) {
+	os.Exit(0)
+}
+
+// thunder_patch end

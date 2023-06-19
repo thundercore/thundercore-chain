@@ -1346,7 +1346,11 @@ func newRPCTransaction(tx *types.Transaction, blockHash common.Hash, blockNumber
 func newRPCPendingTransaction(tx *types.Transaction, current *types.Header, config *params.ChainConfig) *RPCTransaction {
 	var baseFee *big.Int
 	if current != nil {
-		baseFee = misc.CalcBaseFee(config, current)
+		// thunder_patch begin
+		baseFee = misc.ThunderBaseFee(config, current)
+		// thunder_patch origin
+		// baseFee = misc.CalcBaseFee(config, current)
+		// thunder_patch end
 	}
 	return newRPCTransaction(tx, common.Hash{}, 0, 0, baseFee)
 }
@@ -1430,8 +1434,14 @@ func AccessList(ctx context.Context, b Backend, blockNrOrHash rpc.BlockNumberOrH
 	} else {
 		to = crypto.CreateAddress(args.from(), uint64(*args.Nonce))
 	}
+	// thunder_patch begin
+	thunderConfig := b.ChainConfig().Thunder
+	session := thunderConfig.GetSessionFromDifficulty(header.Difficulty, header.Number, thunderConfig)
+	precompiles := vm.ActivePrecompiles(b.ChainConfig().Rules(header.Number, session))
+	// thunder_patch original
 	// Retrieve the precompiles since they don't need to be added to the access list
-	precompiles := vm.ActivePrecompiles(b.ChainConfig().Rules(header.Number))
+	// precompiles := vm.ActivePrecompiles(b.ChainConfig().Rules(header.Number))
+	// thunder_patch end
 
 	// Create an initial tracer
 	prevTracer := vm.NewAccessListTracer(nil, args.from(), to, precompiles)
@@ -1620,7 +1630,19 @@ func (s *PublicTransactionPoolAPI) GetTransactionReceipt(ctx context.Context, ha
 
 	// Derive the sender.
 	bigblock := new(big.Int).SetUint64(blockNumber)
-	signer := types.MakeSigner(s.b.ChainConfig(), bigblock)
+
+	// thunder_patch begin
+	header, err := s.b.HeaderByHash(ctx, blockHash)
+	if err != nil {
+		return nil, err
+	}
+	session := s.b.ChainConfig().Thunder.GetSessionFromDifficulty(
+		header.Difficulty, header.Number, s.b.ChainConfig().Thunder)
+	signer := types.MakeSigner(s.b.ChainConfig(), bigblock, session)
+	// thunder_patch original
+	// signer := types.MakeSigner(s.b.ChainConfig(), bigblock)
+	// thunder_patch end
+
 	from, _ := types.Sender(signer, tx)
 
 	fields := map[string]interface{}{
@@ -1637,14 +1659,20 @@ func (s *PublicTransactionPoolAPI) GetTransactionReceipt(ctx context.Context, ha
 		"logsBloom":         receipt.Bloom,
 		"type":              hexutil.Uint(tx.Type()),
 	}
+	// thunder_patch begin
 	// Assign the effective gas price paid
-	if !s.b.ChainConfig().IsLondon(bigblock) {
+	if !s.b.ChainConfig().Rules(bigblock, session).IsLondon {
+		// thunder_patch original
+		// if !s.b.ChainConfig().IsLondon(bigblock) {
+		// thunder_patch end
 		fields["effectiveGasPrice"] = hexutil.Uint64(tx.GasPrice().Uint64())
 	} else {
-		header, err := s.b.HeaderByHash(ctx, blockHash)
-		if err != nil {
-			return nil, err
-		}
+		// thunder_patch begin
+		// header, err := s.b.HeaderByHash(ctx, blockHash)
+		// if err != nil {
+		// 	return nil, err
+		// }
+		// thunder_patch end
 		gasPrice := new(big.Int).Add(header.BaseFee, tx.EffectiveGasTipValue(header.BaseFee))
 		fields["effectiveGasPrice"] = hexutil.Uint64(gasPrice.Uint64())
 	}
@@ -1692,7 +1720,14 @@ func SubmitTransaction(ctx context.Context, b Backend, tx *types.Transaction) (c
 		return common.Hash{}, err
 	}
 	// Print a log with full tx details for manual investigations and interventions
-	signer := types.MakeSigner(b.ChainConfig(), b.CurrentBlock().Number())
+	// thunder_patch begin
+	header := b.CurrentHeader()
+	session := b.ChainConfig().Thunder.GetSessionFromDifficulty(
+		header.Difficulty, header.Number, b.ChainConfig().Thunder)
+	signer := types.MakeSigner(b.ChainConfig(), header.Number, session)
+	// thunder_patch original
+	// signer := types.MakeSigner(b.ChainConfig(), b.CurrentBlock().Number())
+	// thunder_patch end
 	from, err := types.Sender(signer, tx)
 	if err != nil {
 		return common.Hash{}, err
@@ -2045,7 +2080,11 @@ func (s *PublicNetAPI) Listening() bool {
 
 // PeerCount returns the number of connected peers
 func (s *PublicNetAPI) PeerCount() hexutil.Uint {
-	return hexutil.Uint(s.net.PeerCount())
+	// thunder_patch begin
+	return hexutil.Uint(0)
+	// thunder_patch original
+	//return hexutil.Uint(s.net.PeerCount())
+	// thunder_patch end
 }
 
 // Version returns the current ethereum protocol version.
@@ -2053,6 +2092,78 @@ func (s *PublicNetAPI) Version() string {
 	return fmt.Sprintf("%d", s.networkVersion)
 }
 
+// thunder_patch begin
+// GetTransactionReceiptsByBlockNumber implements a method to get all transactions in a block and map
+// the hash of each to a transaction receipt.
+// Testing locally: Run 'make test' to get blocks containing many transactions locally. Then run:
+// curl -H "Content-Type:application/json" -X POST --data '{"jsonrpc":"2.0","method":
+// "eth_getTransactionReceiptsByBlockNumber","params":["0x23"],"id":"1"}' http://localhost:8545/
+func (s *PublicTransactionPoolAPI) GetTransactionReceiptsByBlockNumber(ctx context.Context,
+	blockNumber rpc.BlockNumber) (map[string]interface{}, error) {
+	blk, err := s.b.BlockByNumber(ctx, blockNumber)
+	if err != nil {
+		return nil, err
+	}
+
+	// Add block nil check to prevent hash calculation panic.
+	if blk == nil {
+		return nil, fmt.Errorf("block is nil")
+	}
+
+	blockHash := blk.Hash()
+	receipts, err := s.b.GetReceipts(ctx, blockHash)
+	if err != nil {
+		return nil, err
+	}
+
+	processedReceipts := make(map[string]interface{})
+	txs := blk.Transactions()
+	if len(txs) != len(receipts) {
+		return nil, fmt.Errorf("txs and receipts mismatched")
+	}
+
+	for index, receipt := range receipts {
+		tx := blk.Transactions()[index]
+		var signer types.Signer = types.FrontierSigner{}
+		if tx.Protected() {
+			signer = types.NewEIP155Signer(tx.ChainId())
+		}
+		from, _ := types.Sender(signer, tx)
+
+		fields := map[string]interface{}{
+			"blockHash":         blockHash,
+			"blockNumber":       hexutil.Uint64(blockNumber),
+			"transactionHash":   tx.Hash(),
+			"transactionIndex":  hexutil.Uint64(index),
+			"from":              from,
+			"to":                tx.To(),
+			"gasUsed":           hexutil.Uint64(receipt.GasUsed),
+			"cumulativeGasUsed": hexutil.Uint64(receipt.CumulativeGasUsed),
+			"contractAddress":   nil,
+			"logs":              receipt.Logs,
+			"logsBloom":         receipt.Bloom,
+		}
+
+		// Assign receipt status or post state.
+		if len(receipt.PostState) > 0 {
+			fields["root"] = hexutil.Bytes(receipt.PostState)
+		} else {
+			fields["status"] = hexutil.Uint(receipt.Status)
+		}
+		if receipt.Logs == nil {
+			fields["logs"] = [][]*types.Log{}
+		}
+		// If the ContractAddress is 20 0x0 bytes, assume it is not a contract creation
+		if receipt.ContractAddress != (common.Address{}) {
+			fields["contractAddress"] = receipt.ContractAddress
+		}
+		processedReceipts[tx.Hash().Hex()] = fields
+	}
+
+	return processedReceipts, nil
+}
+
+// thunder_patch end
 // checkTxFee is an internal function used to check whether the fee of
 // the given transaction is _reasonable_(under the cap).
 func checkTxFee(gasPrice *big.Int, gas uint64, cap float64) error {

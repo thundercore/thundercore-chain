@@ -62,6 +62,24 @@ type spongeDb struct {
 	debug  bool
 }
 
+// thunder_patch begin
+func (s *spongeDb) HasAncient(kind string, number uint64) (bool, error) { panic("implement me") }
+func (s *spongeDb) Ancient(kind string, number uint64) ([]byte, error)  { panic("implement me") }
+func (s *spongeDb) ReadAncients(kind string, start, max, maxByteSize uint64) ([][]byte, error) {
+	panic("implement me")
+}
+func (s *spongeDb) Ancients() (uint64, error)               { panic("implement me") }
+func (s *spongeDb) AncientSize(kind string) (uint64, error) { panic("implement me") }
+func (s *spongeDb) AppendAncient(number uint64, hash, header, body, receipts, td []byte) error {
+	panic("implement me")
+}
+func (s *spongeDb) TruncateAncients(items uint64) error   { panic("implement me") }
+func (s *spongeDb) Sync() error                           { panic("implement me") }
+func (s *spongeDb) HistoryHas(key []byte) (bool, error)   { panic("implement me") }
+func (s *spongeDb) HistoryGet(key []byte) ([]byte, error) { return nil, errors.New("no such elem") }
+
+// thunder_patch end
+
 func (s *spongeDb) Has(key []byte) (bool, error)             { panic("implement me") }
 func (s *spongeDb) Get(key []byte) ([]byte, error)           { return nil, errors.New("no such elem") }
 func (s *spongeDb) Delete(key []byte) error                  { panic("implement me") }

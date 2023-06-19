@@ -23,6 +23,10 @@ import (
 	"math/big"
 	"time"
 
+	// thunder_patch begin
+	"github.com/ethereum/go-ethereum/thunder/thunderella/common/chainconfig"
+	// thunder_patch end
+
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/metrics"
@@ -94,7 +98,32 @@ type stateObject struct {
 
 // empty returns whether the account is considered empty.
 func (s *stateObject) empty() bool {
+	// thunder_patch begin
+
+	// P.L: note, this method is called in the StateDB Finalise method
+	// I believe it's used to clean out smart contract state objects that get created from
+	// 0 value calls to smart contracts that don't exist.
+	// Anyways, it introduces a funny behavior where if the object has not been deleted, it
+	// succesfully retrieves an empty account object from the storage trie, but if it has been
+	// deleted it will see that this is the case in the cache and return nil instead meaning
+	// it's impossible to store data in our TPCs since they have no code but still store state
+	//
+	// I think a better fix for this is to force TPCs to have >0 code size. This also solves
+	// the solidity interface problem (because it checks for extcodesize before calling an interface)
+	// which means you can't use interface to call TPCs because they have 0 code size. Still have
+	// to investigate if this introduces still new security vulnerabilities. For now we just do this
+	// hack fix.
+
+	if s.address == chainconfig.CommElectionTPCAddress ||
+		s.address == chainconfig.VaultTPCAddress ||
+		s.address == chainconfig.TestnetTxnFeeAddr {
+		return false
+	}
 	return s.data.Nonce == 0 && s.data.Balance.Sign() == 0 && bytes.Equal(s.data.CodeHash, emptyCodeHash)
+
+	// thunder_patch original
+	//return s.data.Nonce == 0 && s.data.Balance.Sign() == 0 && bytes.Equal(s.data.CodeHash, emptyCodeHash)
+	// thunder_patch end
 }
 
 // Account is the Ethereum consensus representation of accounts.

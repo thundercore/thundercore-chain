@@ -23,6 +23,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/math"
+	"github.com/ethereum/go-ethereum/consensus/ethash"
 	"github.com/ethereum/go-ethereum/consensus/misc"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/rawdb"
@@ -46,13 +47,14 @@ type Prestate struct {
 // ExecutionResult contains the execution status after running a state test, any
 // error that might have occurred and a dump of the final state if requested.
 type ExecutionResult struct {
-	StateRoot   common.Hash    `json:"stateRoot"`
-	TxRoot      common.Hash    `json:"txRoot"`
-	ReceiptRoot common.Hash    `json:"receiptRoot"`
-	LogsHash    common.Hash    `json:"logsHash"`
-	Bloom       types.Bloom    `json:"logsBloom"        gencodec:"required"`
-	Receipts    types.Receipts `json:"receipts"`
-	Rejected    []*rejectedTx  `json:"rejected,omitempty"`
+	StateRoot   common.Hash           `json:"stateRoot"`
+	TxRoot      common.Hash           `json:"txRoot"`
+	ReceiptRoot common.Hash           `json:"receiptRoot"`
+	LogsHash    common.Hash           `json:"logsHash"`
+	Bloom       types.Bloom           `json:"logsBloom"        gencodec:"required"`
+	Receipts    types.Receipts        `json:"receipts"`
+	Rejected    []*rejectedTx         `json:"rejected,omitempty"`
+	Difficulty  *math.HexOrDecimal256 `json:"currentDifficulty" gencodec:"required"`
 }
 
 type ommer struct {
@@ -62,23 +64,45 @@ type ommer struct {
 
 //go:generate gencodec -type stEnv -field-override stEnvMarshaling -out gen_stenv.go
 type stEnv struct {
-	Coinbase    common.Address                      `json:"currentCoinbase"   gencodec:"required"`
-	Difficulty  *big.Int                            `json:"currentDifficulty" gencodec:"required"`
-	GasLimit    uint64                              `json:"currentGasLimit"   gencodec:"required"`
-	Number      uint64                              `json:"currentNumber"     gencodec:"required"`
-	Timestamp   uint64                              `json:"currentTimestamp"  gencodec:"required"`
-	BlockHashes map[math.HexOrDecimal64]common.Hash `json:"blockHashes,omitempty"`
-	Ommers      []ommer                             `json:"ommers,omitempty"`
-	BaseFee     *big.Int                            `json:"currentBaseFee,omitempty"`
+	Coinbase         common.Address                      `json:"currentCoinbase"   gencodec:"required"`
+	Difficulty       *big.Int                            `json:"currentDifficulty"`
+	ParentDifficulty *big.Int                            `json:"parentDifficulty"`
+	GasLimit         uint64                              `json:"currentGasLimit"   gencodec:"required"`
+	Number           uint64                              `json:"currentNumber"     gencodec:"required"`
+	Timestamp        uint64                              `json:"currentTimestamp"  gencodec:"required"`
+	ParentTimestamp  uint64                              `json:"parentTimestamp,omitempty"`
+	BlockHashes      map[math.HexOrDecimal64]common.Hash `json:"blockHashes,omitempty"`
+	Ommers           []ommer                             `json:"ommers,omitempty"`
+	BaseFee          *big.Int                            `json:"currentBaseFee,omitempty"`
+	ParentUncleHash  common.Hash                         `json:"parentUncleHash"`
+}
+
+type stThunderConfig struct {
+	IsInConsensusTx                int      `json:"isInConsensusTx"`        // Only calls in evm
+	BidVerificationEnabled         int      `json:"bidVerificationEnabled"` // Only calls in evm
+	ElectionStopBlockSessionOffset int64    `json:"electionStopBlockSessionOffset"`
+	ProposerListName               string   `json:"proposerListName"`
+	MaxCodeSize                    int64    `json:"maxCodeSize"`
+	RewardScheme                   string   `json:"rewardScheme"`
+	VaultGasUnlimited              int      `json:"vaultGasUnlimited"`
+	GasTable                       string   `json:"gasTable"`
+	EVMHardforkVersion             string   `json:"evmHardforkVersion"`
+	IsConsensusInfoInHeader        int      `json:"inConsensusInfoInHeader"`
+	RNGVersion                     string   `json:"rngVersion"`
+	BaseFee                        *big.Int `json:"basefee"`
+	TokenInflation                 *big.Int `json:"inflation"`
+	CommitteeRewardRatio           int64    `json:"committeeRewardRatio"`
 }
 
 type stEnvMarshaling struct {
-	Coinbase   common.UnprefixedAddress
-	Difficulty *math.HexOrDecimal256
-	GasLimit   math.HexOrDecimal64
-	Number     math.HexOrDecimal64
-	Timestamp  math.HexOrDecimal64
-	BaseFee    *math.HexOrDecimal256
+	Coinbase         common.UnprefixedAddress
+	Difficulty       *math.HexOrDecimal256
+	ParentDifficulty *math.HexOrDecimal256
+	GasLimit         math.HexOrDecimal64
+	Number           math.HexOrDecimal64
+	Timestamp        math.HexOrDecimal64
+	ParentTimestamp  math.HexOrDecimal64
+	BaseFee          *math.HexOrDecimal256
 }
 
 type rejectedTx struct {
@@ -106,8 +130,12 @@ func (pre *Prestate) Apply(vmConfig vm.Config, chainConfig *params.ChainConfig,
 		return h
 	}
 	var (
-		statedb     = MakePreState(rawdb.NewMemoryDatabase(), pre.Pre)
-		signer      = types.MakeSigner(chainConfig, new(big.Int).SetUint64(pre.Env.Number))
+		statedb = MakePreState(rawdb.NewMemoryDatabase(), pre.Pre)
+		// thunder_patch begin
+		signer = types.MakeSigner(chainConfig, new(big.Int).SetUint64(pre.Env.Number), 0)
+		// thunder_patch original
+		// signer      = types.MakeSigner(chainConfig, new(big.Int).SetUint64(pre.Env.Number))
+		// thunder_patch end
 		gaspool     = new(core.GasPool)
 		blockHash   = common.Hash{0x13, 0x37}
 		rejectedTxs []*rejectedTx
@@ -247,6 +275,7 @@ func (pre *Prestate) Apply(vmConfig vm.Config, chainConfig *params.ChainConfig,
 		LogsHash:    rlpHash(statedb.Logs()),
 		Receipts:    receipts,
 		Rejected:    rejectedTxs,
+		Difficulty:  (*math.HexOrDecimal256)(vmContext.Difficulty),
 	}
 	return statedb, execRs, nil
 }
@@ -273,4 +302,24 @@ func rlpHash(x interface{}) (h common.Hash) {
 	rlp.Encode(hw, x)
 	hw.Sum(h[:0])
 	return h
+}
+
+// calcDifficulty is based on ethash.CalcDifficulty. This method is used in case
+// the caller does not provide an explicit difficulty, but instead provides only
+// parent timestamp + difficulty.
+// Note: this method only works for ethash engine.
+func calcDifficulty(config *params.ChainConfig, number, currentTime, parentTime uint64,
+	parentDifficulty *big.Int, parentUncleHash common.Hash) *big.Int {
+	uncleHash := parentUncleHash
+	if uncleHash == (common.Hash{}) {
+		uncleHash = types.EmptyUncleHash
+	}
+	parent := &types.Header{
+		ParentHash: common.Hash{},
+		UncleHash:  uncleHash,
+		Difficulty: parentDifficulty,
+		Number:     new(big.Int).SetUint64(number - 1),
+		Time:       parentTime,
+	}
+	return ethash.CalcDifficulty(config, currentTime, parent)
 }

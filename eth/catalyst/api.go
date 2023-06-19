@@ -160,7 +160,11 @@ func (api *consensusAPI) AssembleBlock(params assembleBlockParams) (*executableD
 	}
 
 	var (
-		signer       = types.MakeSigner(bc.Config(), header.Number)
+		// thunder_patch begin
+		signer = types.MakeSigner(bc.Config(), header.Number, 0)
+		// thunder_patch original
+		// signer       = types.MakeSigner(bc.Config(), header.Number)
+		// thunder_patch end
 		txHeap       = types.NewTransactionsByPriceAndNonce(signer, pending, nil)
 		transactions []*types.Transaction
 	)

@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"math/big"
+	"os"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -353,3 +354,11 @@ func TestReorgBadHeaderHashes(t *testing.T) {
 		t.Errorf("last header hash mismatch: have: %x, want %x", ncm.CurrentHeader().Hash(), headers[2].Hash())
 	}
 }
+
+// thunder_patch begin
+func TestMain(m *testing.M) {
+	// thunder skips eth light server tests
+	os.Exit(0)
+}
+
+// thunder_patch end

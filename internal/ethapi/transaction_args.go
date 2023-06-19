@@ -82,9 +82,12 @@ func (args *TransactionArgs) setDefaults(ctx context.Context, b Backend) error {
 	head := b.CurrentHeader()
 	// If user specifies both maxPriorityfee and maxFee, then we do not
 	// need to consult the chain for defaults. It's definitely a London tx.
+	// thunder_patch begin
+	session := b.ChainConfig().Thunder.GetSessionFromDifficulty(head.Difficulty, head.Number, b.ChainConfig().Thunder)
+	rules := b.ChainConfig().Rules(head.Number, session)
 	if args.MaxPriorityFeePerGas == nil || args.MaxFeePerGas == nil {
 		// In this clause, user left some fields unspecified.
-		if b.ChainConfig().IsLondon(head.Number) && args.GasPrice == nil {
+		if rules.IsLondon && args.GasPrice == nil {
 			if args.MaxPriorityFeePerGas == nil {
 				tip, err := b.SuggestGasTipCap(ctx)
 				if err != nil {
@@ -111,7 +114,7 @@ func (args *TransactionArgs) setDefaults(ctx context.Context, b Backend) error {
 				if err != nil {
 					return err
 				}
-				if b.ChainConfig().IsLondon(head.Number) {
+				if rules.IsLondon {
 					// The legacy tx gas price suggestion should not add 2x base fee
 					// because all fees are consumed, so it would result in a spiral
 					// upwards.

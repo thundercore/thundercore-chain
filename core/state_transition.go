@@ -229,8 +229,16 @@ func (st *StateTransition) preCheck() error {
 				st.msg.From().Hex(), codeHash)
 		}
 	}
-	// Make sure that transaction gasFeeCap is greater than the baseFee (post london)
-	if st.evm.ChainConfig().IsLondon(st.evm.Context.BlockNumber) {
+	// thunder_patch begin
+	thunderConfig := st.evm.ChainConfig().Thunder
+	session := thunderConfig.GetSessionFromDifficulty(
+		st.evm.Context.Difficulty, st.evm.Context.BlockNumber, thunderConfig)
+	rules := st.evm.ChainConfig().Rules(st.evm.Context.BlockNumber, session)
+	if rules.IsLondon {
+		// thunder_patch original
+		// if st.evm.ChainConfig().IsLondon(st.evm.Context.BlockNumber) {
+		// thunder_patch end
+		// Make sure that transaction gasFeeCap is greater than the baseFee (post london)
 		// Skip the checks if gas fields are zero and baseFee was explicitly disabled (eth_call)
 		if !st.evm.Config.NoBaseFee || st.gasFeeCap.BitLen() > 0 || st.gasTipCap.BitLen() > 0 {
 			if l := st.gasFeeCap.BitLen(); l > 256 {
@@ -286,9 +294,19 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 	}
 	msg := st.msg
 	sender := vm.AccountRef(msg.From())
-	homestead := st.evm.ChainConfig().IsHomestead(st.evm.Context.BlockNumber)
-	istanbul := st.evm.ChainConfig().IsIstanbul(st.evm.Context.BlockNumber)
-	london := st.evm.ChainConfig().IsLondon(st.evm.Context.BlockNumber)
+	// thunder_patch begin
+	thunderConfig := st.evm.ChainConfig().Thunder
+	session := thunderConfig.GetSessionFromDifficulty(
+		st.evm.Context.Difficulty, st.evm.Context.BlockNumber, thunderConfig)
+	rules := st.evm.ChainConfig().Rules(st.evm.Context.BlockNumber, session)
+	homestead := rules.IsHomestead
+	istanbul := rules.IsIstanbul
+	london := rules.IsLondon
+	// thunder_patch original
+	// homestead := st.evm.ChainConfig().IsHomestead(st.evm.Context.BlockNumber)
+	// istanbul := st.evm.ChainConfig().IsIstanbul(st.evm.Context.BlockNumber)
+	// london := st.evm.ChainConfig().IsLondon(st.evm.Context.BlockNumber)
+	// thunder_patch end
 	contractCreation := msg.To() == nil
 
 	// Check clauses 4-5, subtract intrinsic gas if everything is correct
@@ -307,7 +325,10 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 	}
 
 	// Set up the initial access list.
-	if rules := st.evm.ChainConfig().Rules(st.evm.Context.BlockNumber); rules.IsBerlin {
+	if rules := st.evm.ChainConfig().Rules(st.evm.Context.BlockNumber, session); rules.IsBerlin {
+		// thunder_patch original
+		// if rules := st.evm.ChainConfig().Rules(st.evm.Context.BlockNumber); rules.IsBerlin {
+		// thunder_patch end
 		st.state.PrepareAccessList(msg.From(), msg.To(), vm.ActivePrecompiles(rules), msg.AccessList())
 	}
 	var (
@@ -333,7 +354,15 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 	if london {
 		effectiveTip = cmath.BigMin(st.gasTipCap, new(big.Int).Sub(st.gasFeeCap, st.evm.Context.BaseFee))
 	}
-	st.state.AddBalance(st.evm.Context.Coinbase, new(big.Int).Mul(new(big.Int).SetUint64(st.gasUsed()), effectiveTip))
+
+	// thunder_patch begin
+	// After token inflation hardfork, we distribute reward only when stop block generated.
+	if thunderConfig.RewardScheme.GetValueAtSession(int64(session)) != "inflation" {
+		st.state.AddBalance(st.evm.Context.Coinbase, new(big.Int).Mul(new(big.Int).SetUint64(st.gasUsed()), effectiveTip))
+	}
+	// thunder_patch original
+	// st.state.AddBalance(st.evm.Context.Coinbase, new(big.Int).Mul(new(big.Int).SetUint64(st.gasUsed()), effectiveTip))
+	// thunder_patch end
 
 	return &ExecutionResult{
 		UsedGas:    st.gasUsed(),

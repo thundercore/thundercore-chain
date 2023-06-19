@@ -41,3 +41,8 @@ type ChainSideEvent struct {
 }
 
 type ChainHeadEvent struct{ Block *types.Block }
+
+// thunder_patch begin
+type EvictTxEvent struct{ Txs []*types.Transaction }
+
+// thunder_patch end

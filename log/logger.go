@@ -105,6 +105,15 @@ type RecordKeyNames struct {
 	Ctx  string
 }
 
+// thunder_patch begin
+type ThunderLogger interface {
+	Info(s string, args ...interface{})
+	Warn(s string, args ...interface{})
+	Error(s string, args ...interface{})
+}
+
+// thunder_patch end
+
 // A Logger writes key/value pairs to a Handler
 type Logger interface {
 	// New returns a new Logger that has this logger's context plus the given context

@@ -19,6 +19,7 @@ package fetcher
 import (
 	"errors"
 	"math/big"
+	"os"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -35,10 +36,15 @@ import (
 )
 
 var (
-	testdb       = rawdb.NewMemoryDatabase()
-	testKey, _   = crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
-	testAddress  = crypto.PubkeyToAddress(testKey.PublicKey)
-	genesis      = core.GenesisBlockForTesting(testdb, testAddress, big.NewInt(1000000000000000))
+	testdb      = rawdb.NewMemoryDatabase()
+	testKey, _  = crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
+	testAddress = crypto.PubkeyToAddress(testKey.PublicKey)
+	// thunder_patch begin
+	// Because the gas fee is more then default, we need to set genesis money 10 times.
+	genesis = core.GenesisBlockForTesting(testdb, testAddress, big.NewInt(10000000*params.GWei))
+	// thunder_patch original
+	// genesis      = core.GenesisBlockForTesting(testdb, testAddress, big.NewInt(1000000000000000))
+	// thunder_patch end
 	unknownBlock = types.NewBlock(&types.Header{GasLimit: params.GenesisGasLimit, BaseFee: big.NewInt(params.InitialBaseFee)}, nil, nil, nil, trie.NewStackTrie(nil))
 )
 
@@ -52,7 +58,11 @@ func makeChain(n int, seed byte, parent *types.Block) ([]common.Hash, map[common
 
 		// If the block number is multiple of 3, send a bonus transaction to the miner
 		if parent == genesis && i%3 == 0 {
-			signer := types.MakeSigner(params.TestChainConfig, block.Number())
+			// thunder_patch begin
+			signer := types.MakeSigner(params.TestChainConfig, block.Number(), 0)
+			// thunder_patch original
+			// signer := types.MakeSigner(params.TestChainConfig, block.Number())
+			// thunder_patch end
 			tx, err := types.SignTx(types.NewTransaction(block.TxNonce(testAddress), common.Address{seed}, big.NewInt(1000), params.TxGas, block.BaseFee(), nil), signer, testKey)
 			if err != nil {
 				panic(err)
@@ -894,3 +904,12 @@ func TestBlockMemoryExhaustionAttack(t *testing.T) {
 	}
 	verifyImportDone(t, imported)
 }
+
+// thunder_patch begin
+func TestMain(m *testing.M) {
+	thunderConfig := params.ThunderConfigForTesting(big.NewInt(0), "london")
+	params.TestChainConfig.Thunder = thunderConfig
+	os.Exit(m.Run())
+}
+
+// thunder_patch end

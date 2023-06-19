@@ -48,15 +48,27 @@ func newStatePrefetcher(config *params.ChainConfig, bc *BlockChain, engine conse
 // the transaction messages using the statedb, but any changes are discarded. The
 // only goal is to pre-cache transaction signatures and state trie nodes.
 func (p *statePrefetcher) Prefetch(block *types.Block, statedb *state.StateDB, cfg vm.Config, interrupt *uint32) {
+	// thunder_patch begin
+	session := p.config.Thunder.GetSessionFromDifficulty(block.Difficulty(), block.Number(), p.config.Thunder)
+	rules := p.config.Rules(block.Number(), session)
+	// thunder_patch end
 	var (
 		header       = block.Header()
 		gaspool      = new(GasPool).AddGas(block.GasLimit())
 		blockContext = NewEVMBlockContext(header, p.bc, nil)
 		evm          = vm.NewEVM(blockContext, vm.TxContext{}, statedb, p.config, cfg)
-		signer       = types.MakeSigner(p.config, header.Number)
+		// thunder_patch begin
+		signer = types.MakeSigner(p.config, header.Number, session)
+		// thunder_patch original
+		// signer       = types.MakeSigner(p.config, header.Number)
+		// thunder_patch end
 	)
 	// Iterate over and process the individual transactions
-	byzantium := p.config.IsByzantium(block.Number())
+	// thunder_patch begin
+	byzantium := rules.IsByzantium
+	// thunder_patch original
+	// byzantium := p.config.IsByzantium(block.Number())
+	// thunder_patch end
 	for i, tx := range block.Transactions() {
 		// If block precaching was interrupted, abort
 		if interrupt != nil && atomic.LoadUint32(interrupt) == 1 {

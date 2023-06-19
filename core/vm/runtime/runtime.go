@@ -45,6 +45,10 @@ type Config struct {
 	EVMConfig   vm.Config
 	BaseFee     *big.Int
 
+	// thunder_patch_begin
+	MixDigest common.Hash
+	// thunder_patch_end
+
 	State     *state.StateDB
 	GetHashFn func(n uint64) common.Hash
 }
@@ -89,6 +93,12 @@ func setDefaults(cfg *Config) {
 	if cfg.BlockNumber == nil {
 		cfg.BlockNumber = new(big.Int)
 	}
+	// thunder_patch_begin
+	emptyHash := common.Hash{}
+	if cfg.MixDigest != emptyHash {
+		cfg.MixDigest = common.Hash{}
+	}
+	// thunder_patch_end
 	if cfg.GetHashFn == nil {
 		cfg.GetHashFn = func(n uint64) common.Hash {
 			return common.BytesToHash(crypto.Keccak256([]byte(new(big.Int).SetUint64(n).String())))
@@ -118,7 +128,13 @@ func Execute(code, input []byte, cfg *Config) ([]byte, *state.StateDB, error) {
 		vmenv   = NewEnv(cfg)
 		sender  = vm.AccountRef(cfg.Origin)
 	)
-	if rules := cfg.ChainConfig.Rules(vmenv.Context.BlockNumber); rules.IsBerlin {
+
+	// thunder_patch begin
+	session := cfg.ChainConfig.Thunder.GetSessionFromDifficulty(cfg.Difficulty, cfg.BlockNumber, cfg.ChainConfig.Thunder)
+	if rules := cfg.ChainConfig.Rules(vmenv.Context.BlockNumber, session); rules.IsBerlin {
+		// thunder_patch original
+		// if rules := cfg.ChainConfig.Rules(vmenv.Context.BlockNumber); rules.IsBerlin {
+		// thunder_patch end
 		cfg.State.PrepareAccessList(cfg.Origin, &address, vm.ActivePrecompiles(rules), nil)
 	}
 	cfg.State.CreateAccount(address)
@@ -150,7 +166,13 @@ func Create(input []byte, cfg *Config) ([]byte, common.Address, uint64, error) {
 		vmenv  = NewEnv(cfg)
 		sender = vm.AccountRef(cfg.Origin)
 	)
-	if rules := cfg.ChainConfig.Rules(vmenv.Context.BlockNumber); rules.IsBerlin {
+
+	// thunder_patch begin
+	session := cfg.ChainConfig.Thunder.GetSessionFromDifficulty(cfg.Difficulty, cfg.BlockNumber, cfg.ChainConfig.Thunder)
+	if rules := cfg.ChainConfig.Rules(vmenv.Context.BlockNumber, session); rules.IsBerlin {
+		// thunder_patch original
+		// if rules := cfg.ChainConfig.Rules(vmenv.Context.BlockNumber); rules.IsBerlin {
+		// thunder_patch end
 		cfg.State.PrepareAccessList(cfg.Origin, nil, vm.ActivePrecompiles(rules), nil)
 	}
 	// Call the code with the given configuration.
@@ -176,7 +198,12 @@ func Call(address common.Address, input []byte, cfg *Config) ([]byte, uint64, er
 	sender := cfg.State.GetOrNewStateObject(cfg.Origin)
 	statedb := cfg.State
 
-	if rules := cfg.ChainConfig.Rules(vmenv.Context.BlockNumber); rules.IsBerlin {
+	// thunder_patch begin
+	session := cfg.ChainConfig.Thunder.GetSessionFromDifficulty(cfg.Difficulty, cfg.BlockNumber, cfg.ChainConfig.Thunder)
+	if rules := cfg.ChainConfig.Rules(vmenv.Context.BlockNumber, session); rules.IsBerlin {
+		// thunder_patch original
+		// if rules := cfg.ChainConfig.Rules(vmenv.Context.BlockNumber); rules.IsBerlin {
+		// thunder_patch end
 		statedb.PrepareAccessList(cfg.Origin, &address, vm.ActivePrecompiles(rules), nil)
 	}
 	// Call the code with the given configuration.

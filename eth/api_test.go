@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"fmt"
 	"math/big"
+	"os"
 	"reflect"
 	"sort"
 	"testing"
@@ -29,6 +30,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/rawdb"
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/params"
 )
 
 var dumper = spew.ConfigState{Indent: "    "}
@@ -218,3 +220,14 @@ func TestStorageRangeAt(t *testing.T) {
 		}
 	}
 }
+
+// thunder_patch begin
+func TestMain(m *testing.M) {
+	thunderConfig := params.ThunderConfigForTesting(big.NewInt(0), "london")
+	params.TestChainConfig.Thunder = thunderConfig
+	params.AllEthashProtocolChanges.Thunder = thunderConfig
+	params.MainnetChainConfig.Thunder = thunderConfig
+	os.Exit(m.Run())
+}
+
+// thunder_patch end

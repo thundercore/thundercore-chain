@@ -51,6 +51,10 @@ var (
 )
 
 func TestMain(m *testing.M) {
+	// thunder_patch begin
+	os.Exit(0)
+	// thunder_patch end
+
 	flag.Parse()
 	log.PrintOrigins(true)
 	log.Root().SetHandler(log.LvlFilterHandler(log.Lvl(*loglevel), log.StreamHandler(colorable.NewColorableStderr(), log.TerminalFormat(true))))

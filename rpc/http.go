@@ -249,6 +249,11 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if origin := r.Header.Get("Origin"); origin != "" {
 		ctx = context.WithValue(ctx, "Origin", origin)
 	}
+	// thunder_patch begin
+	if xForwarded := r.Header.Get("X-Forwarded-For"); xForwarded != "" {
+		ctx = context.WithValue(ctx, "X-Forwarded-For", xForwarded)
+	}
+	// thunder_patch end
 
 	w.Header().Set("content-type", contentType)
 	codec := newHTTPServerConn(r, w)

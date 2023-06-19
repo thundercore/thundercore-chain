@@ -89,6 +89,9 @@ type Backend interface {
 	SubscribeRemovedLogsEvent(ch chan<- core.RemovedLogsEvent) event.Subscription
 
 	ChainConfig() *params.ChainConfig
+	// thunder_patch begin
+	GetClearingGasPrice() *big.Int
+	// thunder_patch end
 	Engine() consensus.Engine
 }
 

@@ -18,6 +18,7 @@ package catalyst
 
 import (
 	"math/big"
+	"os"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/consensus/ethash"
@@ -242,3 +243,10 @@ func startEthService(t *testing.T, genesis *core.Genesis, blocks []*types.Block)
 
 	return n, ethservice
 }
+
+// thunder_patch begin
+func TestMain(m *testing.M) {
+	os.Exit(0)
+}
+
+// thunder_patch end

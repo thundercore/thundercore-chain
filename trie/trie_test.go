@@ -32,6 +32,7 @@ import (
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/rawdb"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethdb"
 	"github.com/ethereum/go-ethereum/ethdb/leveldb"
@@ -480,8 +481,16 @@ const benchElemCount = 20000
 
 func benchGet(b *testing.B, commit bool) {
 	trie := new(Trie)
+	// thunder_patch begin
+	var dbDir string
+	var tmpdb *Database
+	// thunder_patch end
 	if commit {
-		_, tmpdb := tempDB()
+		// thunder_patch begin
+		dbDir, tmpdb = tempDB()
+		// thunder_patch original
+		// _, tmpdb := tempDB()
+		// thunder_patch end
 		trie, _ = New(common.Hash{}, tmpdb)
 	}
 	k := make([]byte, 32)
@@ -501,9 +510,14 @@ func benchGet(b *testing.B, commit bool) {
 	b.StopTimer()
 
 	if commit {
-		ldb := trie.db.diskdb.(*leveldb.Database)
-		ldb.Close()
-		os.RemoveAll(ldb.Path())
+		// thunder_patch begin
+		trie.db.diskdb.Close()
+		os.RemoveAll(dbDir)
+		// thunder_patch original
+		// ldb := trie.db.diskdb.(*leveldb.Database)
+		// ldb.Close()
+		// os.RemoveAll(ldb.Path())
+		// thunder_patch end
 	}
 }
 
@@ -676,6 +690,24 @@ type spongeDb struct {
 	id      string
 	journal []string
 }
+
+// thunder_patch begin
+func (s *spongeDb) HasAncient(kind string, number uint64) (bool, error) { panic("implement me") }
+func (s *spongeDb) Ancient(kind string, number uint64) ([]byte, error)  { panic("implement me") }
+func (s *spongeDb) ReadAncients(kind string, start, max, maxByteSize uint64) ([][]byte, error) {
+	panic("implement me")
+}
+func (s *spongeDb) Ancients() (uint64, error)               { panic("implement me") }
+func (s *spongeDb) AncientSize(kind string) (uint64, error) { panic("implement me") }
+func (s *spongeDb) AppendAncient(number uint64, hash, header, body, receipts, td []byte) error {
+	panic("implement me")
+}
+func (s *spongeDb) TruncateAncients(items uint64) error   { panic("implement me") }
+func (s *spongeDb) Sync() error                           { panic("implement me") }
+func (s *spongeDb) HistoryHas(key []byte) (bool, error)   { panic("implement me") }
+func (s *spongeDb) HistoryGet(key []byte) ([]byte, error) { return nil, errors.New("no such elem") }
+
+// thunder_patch end
 
 func (s *spongeDb) Has(key []byte) (bool, error)             { panic("implement me") }
 func (s *spongeDb) Get(key []byte) ([]byte, error)           { return nil, errors.New("no such elem") }
@@ -1064,7 +1096,11 @@ func tempDB() (string, *Database) {
 	if err != nil {
 		panic(fmt.Sprintf("can't create temporary database: %v", err))
 	}
-	return dir, NewDatabase(diskdb)
+	// thunder_patch begin
+	return dir, NewDatabase(rawdb.NewDatabase(diskdb))
+	// thunder_patch original
+	// return dir, NewDatabase(diskdb)
+	// thunder_patch end
 }
 
 func getString(trie *Trie, k string) []byte {

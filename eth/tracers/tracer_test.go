@@ -211,6 +211,9 @@ func TestIsPrecompile(t *testing.T) {
 	chaincfg.ByzantiumBlock = big.NewInt(100)
 	chaincfg.IstanbulBlock = big.NewInt(200)
 	chaincfg.BerlinBlock = big.NewInt(300)
+	// thunder_patch begin
+	chaincfg.Thunder = params.ThunderConfigForTesting(big.NewInt(0), "byzantium")
+	// thunder_patch end
 	txCtx := vm.TxContext{GasPrice: big.NewInt(100000)}
 	tracer, err := New("{addr: toAddress('0000000000000000000000000000000000000009'), res: null, step: function() { this.res = isPrecompiled(this.addr); }, fault: function() {}, result: function() { return this.res; }}", new(Context))
 	if err != nil {
@@ -225,6 +228,10 @@ func TestIsPrecompile(t *testing.T) {
 	if string(res) != "false" {
 		t.Errorf("Tracer should not consider blake2f as precompile in byzantium")
 	}
+
+	// thunder_patch begin
+	chaincfg.Thunder = params.ThunderConfigForTesting(big.NewInt(0), "london")
+	// thunder_patch end
 
 	tracer, _ = New("{addr: toAddress('0000000000000000000000000000000000000009'), res: null, step: function() { this.res = isPrecompiled(this.addr); }, fault: function() {}, result: function() { return this.res; }}", new(Context))
 	blockCtx = vm.BlockContext{BlockNumber: big.NewInt(250)}

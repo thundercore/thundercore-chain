@@ -25,6 +25,8 @@ import (
 	"runtime"
 	"time"
 
+	"github.com/ethereum/go-ethereum/thunder/thunderella/consensus/thunder"
+
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/consensus"
 	"github.com/ethereum/go-ethereum/consensus/clique"
@@ -158,6 +160,10 @@ type Config struct {
 	DatabaseHandles    int  `toml:"-"`
 	DatabaseCache      int
 	DatabaseFreezer    string
+	// thunder_patch begin
+	// run gencodec -type Config -formats toml -out gen_config.go in a new go-ethereum repo
+	DatabaseHistory string
+	// thunder_patch end
 
 	TrieCleanCache          int
 	TrieCleanCacheJournal   string        `toml:",omitempty"` // Disk journal directory for trie cache to survive node restarts
@@ -200,14 +206,30 @@ type Config struct {
 
 	// Berlin block override (TODO: remove after the fork)
 	OverrideLondon *big.Int `toml:",omitempty"`
+
+	// thunder_patch begin
+	Upgrader             func(ethdb.Database, *core.BlockChain) error
+	MaxRpcLogsBlockRange int64
+	// thunder_patch end
 }
 
 // CreateConsensusEngine creates a consensus engine for the given chain configuration.
 func CreateConsensusEngine(stack *node.Node, chainConfig *params.ChainConfig, config *ethash.Config, notify []string, noverify bool, db ethdb.Database) consensus.Engine {
+	// thunder_patch begin
+	if chainConfig.Thunder != nil {
+		return thunder.New(chainConfig.Thunder)
+	} else {
+		// Fail explicitly if we are missing thunder config.
+		return nil
+	}
+
+	// thunder_patch end
+
 	// If proof-of-authority is requested, set it up
 	if chainConfig.Clique != nil {
 		return clique.New(chainConfig.Clique, db)
 	}
+
 	// Otherwise assume proof-of-work
 	switch config.PowMode {
 	case ethash.ModeFake:

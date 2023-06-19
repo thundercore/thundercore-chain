@@ -878,6 +878,71 @@ func (s *StateDB) IntermediateRoot(deleteEmptyObjects bool) common.Hash {
 	return s.trie.Hash()
 }
 
+// thunder_patch begin
+
+// copyOld duplicated the old `Copy()` function from geth `v1.8.22` and it only copies
+// partial of the statedb.  We don't use the new one because the ImtermediateRoot()
+// will return a different root hash. It's enough for our rng to retrieve the root state hash.
+func (self *StateDB) copyOld() *StateDB {
+	// Copy all the basic fields, initialize the memory ones
+	state := &StateDB{
+		db:                self.db,
+		trie:              self.db.CopyTrie(self.trie),
+		stateObjects:      make(map[common.Address]*stateObject, len(self.journal.dirties)),
+		stateObjectsDirty: make(map[common.Address]struct{}, len(self.journal.dirties)),
+		refund:            self.refund,
+		logs:              make(map[common.Hash][]*types.Log, len(self.logs)),
+		logSize:           self.logSize,
+		preimages:         make(map[common.Hash][]byte),
+		journal:           newJournal(),
+	}
+	// Copy the dirty states, logs, and preimages
+	for addr := range self.journal.dirties {
+		// As documented [here](https://github.com/ethereum/go-ethereum/pull/16485#issuecomment-380438527),
+		// and in the Finalise-method, there is a case where an object is in the journal but not
+		// in the stateObjects: OOG after touch on ripeMD prior to Byzantium. Thus, we need to check for
+		// nil
+		if object, exist := self.stateObjects[addr]; exist {
+			state.stateObjects[addr] = object.deepCopy(state)
+			state.stateObjectsDirty[addr] = struct{}{}
+		}
+	}
+	// Above, we don't copy the actual journal. This means that if the copy is copied, the
+	// loop above will be a no-op, since the copy's journal is empty.
+	// Thus, here we iterate over stateObjects, to enable copies of copies
+	for addr := range self.stateObjectsDirty {
+		if _, exist := state.stateObjects[addr]; !exist {
+			state.stateObjects[addr] = self.stateObjects[addr].deepCopy(state)
+			state.stateObjectsDirty[addr] = struct{}{}
+		}
+	}
+	for hash, logs := range self.logs {
+		cpy := make([]*types.Log, len(logs))
+		for i, l := range logs {
+			cpy[i] = new(types.Log)
+			*cpy[i] = *l
+		}
+		state.logs[hash] = cpy
+	}
+	for hash, preimage := range self.preimages {
+		state.preimages[hash] = preimage
+	}
+	return state
+}
+
+// Don't use `s.Copy()`, it will raise invalid merkle root if behavior changes.
+func (s *StateDB) CopyOfIntermediateRoot(legacyCopy bool) common.Hash {
+	var copied *StateDB
+	if legacyCopy {
+		copied = s.copyOld()
+	} else {
+		copied = s.Copy()
+	}
+	return copied.IntermediateRoot(false)
+}
+
+// thunder_patch end
+
 // Prepare sets the current transaction hash and index which are
 // used when the EVM emits new state logs.
 func (s *StateDB) Prepare(thash common.Hash, ti int) {
@@ -917,6 +982,7 @@ func (s *StateDB) Commit(deleteEmptyObjects bool) (common.Hash, error) {
 			}
 		}
 	}
+
 	if len(s.stateObjectsDirty) > 0 {
 		s.stateObjectsDirty = make(map[common.Address]struct{})
 	}
@@ -942,6 +1008,7 @@ func (s *StateDB) Commit(deleteEmptyObjects bool) (common.Hash, error) {
 		}
 		return nil
 	})
+
 	if metrics.EnabledExpensive {
 		s.AccountCommits += time.Since(start)
 	}
@@ -950,6 +1017,7 @@ func (s *StateDB) Commit(deleteEmptyObjects bool) (common.Hash, error) {
 		if metrics.EnabledExpensive {
 			defer func(start time.Time) { s.SnapshotCommits += time.Since(start) }(time.Now())
 		}
+		mStart := time.Now()
 		// Only update if there's a state transition (skip empty Clique blocks)
 		if parent := s.snap.Root(); parent != root {
 			if err := s.snaps.Update(root, parent, s.snapDestructs, s.snapAccounts, s.snapStorage); err != nil {
@@ -963,6 +1031,7 @@ func (s *StateDB) Commit(deleteEmptyObjects bool) (common.Hash, error) {
 				log.Warn("Failed to cap snapshot tree", "root", root, "layers", 128, "err", err)
 			}
 		}
+		log.Debug("state snapshot write back disk", "time", common.PrettyDuration(time.Since(mStart)))
 		s.snap, s.snapDestructs, s.snapAccounts, s.snapStorage = nil, nil, nil, nil
 	}
 	return root, err

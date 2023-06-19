@@ -19,6 +19,7 @@ package filters
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -58,12 +59,20 @@ type Filter struct {
 	block      common.Hash // Block hash if filtering a single block
 	begin, end int64       // Range interval if filtering multiple blocks
 
+	// thunder_patch begin
+	maxRpcLogsBlockRange int64
+	// thunder_patch end
+
 	matcher *bloombits.Matcher
 }
 
 // NewRangeFilter creates a new filter which uses a bloom filter on blocks to
 // figure out whether a particular block is interesting or not.
-func NewRangeFilter(backend Backend, begin, end int64, addresses []common.Address, topics [][]common.Hash) *Filter {
+// thunder_patch begin
+func NewRangeFilter(backend Backend, begin, end int64, addresses []common.Address, topics [][]common.Hash, maxRpcLogsBlockRange int64) *Filter {
+	// thunder_patch origin
+	// func NewRangeFilter(backend Backend, begin, end int64, addresses []common.Address, topics [][]common.Hash) *Filter {
+	// thunder_patch end
 	// Flatten the address and topic filter clauses into a single bloombits filter
 	// system. Since the bloombits are not positional, nil topics are permitted,
 	// which get flattened into a nil byte slice.
@@ -90,6 +99,10 @@ func NewRangeFilter(backend Backend, begin, end int64, addresses []common.Addres
 	filter.matcher = bloombits.NewMatcher(size, filters)
 	filter.begin = begin
 	filter.end = end
+
+	// thunder_patch begin
+	filter.maxRpcLogsBlockRange = maxRpcLogsBlockRange
+	// thunder_patch begin
 
 	return filter
 }
@@ -147,6 +160,14 @@ func (f *Filter) Logs(ctx context.Context) ([]*types.Log, error) {
 		logs []*types.Log
 		err  error
 	)
+
+	// thunder_patch begin
+	if f.maxRpcLogsBlockRange > 0 && int64(end) > f.begin && int64(end)-f.begin > f.maxRpcLogsBlockRange {
+		errMsg := fmt.Sprintf("exceed maximum block range: %v", f.maxRpcLogsBlockRange)
+		return logs, errors.New(errMsg)
+	}
+	// thunder_patch end
+
 	size, sections := f.backend.BloomStatus()
 	if indexed := sections * size; indexed > uint64(f.begin) {
 		if indexed > end {
@@ -158,6 +179,7 @@ func (f *Filter) Logs(ctx context.Context) ([]*types.Log, error) {
 			return logs, err
 		}
 	}
+
 	rest, err := f.unindexedLogs(ctx, end)
 	logs = append(logs, rest...)
 	return logs, err

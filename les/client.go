@@ -301,8 +301,12 @@ func (s *LightEthereum) APIs() []rpc.API {
 		}, {
 			Namespace: "eth",
 			Version:   "1.0",
-			Service:   filters.NewPublicFilterAPI(s.ApiBackend, true, 5*time.Minute),
-			Public:    true,
+			// thunder_patch begin
+			Service: filters.NewPublicFilterAPI(s.ApiBackend, true, 5*time.Minute, -1),
+			// thunder_patch origin
+			// Service:   filters.NewPublicFilterAPI(s.ApiBackend, true, 5*time.Minute),
+			// thunder_patch end
+			Public: true,
 		}, {
 			Namespace: "net",
 			Version:   "1.0",

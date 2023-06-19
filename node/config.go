@@ -171,6 +171,9 @@ type Config struct {
 	// private APIs to untrusted users is a major security risk.
 	WSExposeAll bool `toml:",omitempty"`
 
+	// thunder_patch begin
+	LogRpcRequests bool
+	// thunder_patch end
 	// GraphQLCors is the Cross-Origin Resource Sharing header to send to requesting
 	// clients. Please be aware that CORS is a browser enforced security, it's fully
 	// useless for custom HTTP clients.

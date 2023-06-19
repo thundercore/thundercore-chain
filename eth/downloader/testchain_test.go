@@ -35,7 +35,12 @@ var (
 	testKey, _  = crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
 	testAddress = crypto.PubkeyToAddress(testKey.PublicKey)
 	testDB      = rawdb.NewMemoryDatabase()
-	testGenesis = core.GenesisBlockForTesting(testDB, testAddress, big.NewInt(1000000000000000))
+	// thunder_patch begin
+	// Because the gas fee is more then default, we need to set genesis money 10 times.
+	testGenesis = core.GenesisBlockForTesting(testDB, testAddress, big.NewInt(10000000*params.GWei))
+	// thunder_patch original
+	// testGenesis = core.GenesisBlockForTesting(testDB, testAddress, big.NewInt(1000000000000000))
+	// thunder_patch end
 )
 
 // The common prefix of all test chains:
@@ -65,6 +70,10 @@ type testChain struct {
 
 // newTestChain creates a blockchain of the given length.
 func newTestChain(length int, genesis *types.Block) *testChain {
+	// thunder_patch begin
+	params.TestChainConfig.Thunder = params.ThunderConfigForTesting(big.NewInt(0), "london")
+	// thunder_patch end
+
 	tc := new(testChain).copy(length)
 	tc.genesis = genesis
 	tc.chain = append(tc.chain, genesis.Hash())
@@ -126,7 +135,11 @@ func (tc *testChain) generate(n int, seed byte, parent *types.Block, heavy bool)
 		}
 		// Include transactions to the miner to make blocks more interesting.
 		if parent == tc.genesis && i%22 == 0 {
-			signer := types.MakeSigner(params.TestChainConfig, block.Number())
+			// thunder_patch begin
+			signer := types.MakeSigner(params.TestChainConfig, block.Number(), 0)
+			// thunder_patch original
+			// signer := types.MakeSigner(params.TestChainConfig, block.Number())
+			// thunder_patch end
 			tx, err := types.SignTx(types.NewTransaction(block.TxNonce(testAddress), common.Address{seed}, big.NewInt(1000), params.TxGas, block.BaseFee(), nil), signer, testKey)
 			if err != nil {
 				panic(err)

@@ -29,6 +29,7 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/cmd/evm/internal/compiler"
+
 	"github.com/ethereum/go-ethereum/cmd/utils"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
@@ -108,10 +109,10 @@ func runCmd(ctx *cli.Context) error {
 	glogger.Verbosity(log.Lvl(ctx.GlobalInt(VerbosityFlag.Name)))
 	log.Root().SetHandler(glogger)
 	logconfig := &vm.LogConfig{
-		DisableMemory:     ctx.GlobalBool(DisableMemoryFlag.Name),
+		DisableMemory:     !ctx.GlobalBool(DisableMemoryFlag.Name),
 		DisableStack:      ctx.GlobalBool(DisableStackFlag.Name),
 		DisableStorage:    ctx.GlobalBool(DisableStorageFlag.Name),
-		DisableReturnData: ctx.GlobalBool(DisableReturnDataFlag.Name),
+		DisableReturnData: !ctx.GlobalBool(DisableReturnDataFlag.Name),
 		Debug:             ctx.GlobalBool(DebugFlag.Name),
 	}
 

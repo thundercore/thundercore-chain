@@ -43,6 +43,7 @@ import (
 	"github.com/ethereum/go-ethereum/eth/gasprice"
 	"github.com/ethereum/go-ethereum/eth/protocols/eth"
 	"github.com/ethereum/go-ethereum/eth/protocols/snap"
+	"github.com/ethereum/go-ethereum/eth/tracers"
 	"github.com/ethereum/go-ethereum/ethdb"
 	"github.com/ethereum/go-ethereum/event"
 	"github.com/ethereum/go-ethereum/internal/ethapi"
@@ -127,7 +128,11 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 	ethashConfig.NotifyFull = config.Miner.NotifyFull
 
 	// Assemble the Ethereum object
-	chainDb, err := stack.OpenDatabaseWithFreezer("chaindata", config.DatabaseCache, config.DatabaseHandles, config.DatabaseFreezer, "eth/db/chaindata/", false)
+	// thunder_patch begin
+	chainDb, err := stack.OpenDatabaseWithHistory("chaindata", config.DatabaseCache, config.DatabaseHandles, config.DatabaseHistory, "eth/db/chaindata/", false)
+	// thunder_patch original
+	// chainDb, err := stack.OpenDatabaseWithFreezer("chaindata", config.DatabaseCache, config.DatabaseHandles, config.DatabaseFreezer, "eth/db/chaindata/", false)
+	// thunder_patch end
 	if err != nil {
 		return nil, err
 	}
@@ -192,6 +197,16 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	// thunder_patch begin
+	if config.Upgrader != nil {
+		err = config.Upgrader(eth.chainDb, eth.blockchain)
+		if err != nil {
+			return nil, err
+		}
+	}
+	// thunder_patch end
+
 	// Rewind the chain in case of an incompatible config upgrade.
 	if compat, ok := genesisErr.(*params.ConfigCompatError); ok {
 		log.Warn("Rewinding chain to upgrade configuration", "err", compat)
@@ -234,7 +249,11 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 	}
 	gpoParams := config.GPO
 	if gpoParams.Default == nil {
-		gpoParams.Default = config.Miner.GasPrice
+		// thunder_patch begin
+		gpoParams.Default = big.NewInt(1)
+		// thunder_patch original
+		// gpoParams.Default = config.Miner.GasPrice
+		// thunder_patch end
 	}
 	eth.APIBackend.gpo = gasprice.NewOracle(eth.APIBackend, gpoParams)
 
@@ -322,8 +341,12 @@ func (s *Ethereum) APIs() []rpc.API {
 		}, {
 			Namespace: "eth",
 			Version:   "1.0",
-			Service:   filters.NewPublicFilterAPI(s.APIBackend, false, 5*time.Minute),
-			Public:    true,
+			// thunder_patch begin
+			Service: filters.NewPublicFilterAPI(s.APIBackend, false, 5*time.Minute, s.config.MaxRpcLogsBlockRange),
+			// thunder_patch original
+			// Service: filters.NewPublicFilterAPI(s.APIBackend, false),
+			// thunder_patch end
+			Public: true,
 		}, {
 			Namespace: "admin",
 			Version:   "1.0",
@@ -337,6 +360,13 @@ func (s *Ethereum) APIs() []rpc.API {
 			Namespace: "debug",
 			Version:   "1.0",
 			Service:   NewPrivateDebugAPI(s),
+			// thunder_patch begin
+			// Enable tracer API here
+		}, {
+			Namespace: "debug",
+			Version:   "1.0",
+			Service:   tracers.NewAPI(s.APIBackend),
+			// thunder_patch end
 		}, {
 			Namespace: "net",
 			Version:   "1.0",
@@ -529,16 +559,22 @@ func (s *Ethereum) Start() error {
 	// Start the bloom bits servicing goroutines
 	s.startBloomHandlers(params.BloomBitsBlocks)
 
+	// thunder_patch: begin
+	// Do not start ProtocolManager which runs Ethereum Wire Protocol and starts some goroutines.
+	// thunder_patch: original
 	// Figure out a max peers count based on the server limits
-	maxPeers := s.p2pServer.MaxPeers
-	if s.config.LightServ > 0 {
-		if s.config.LightPeers >= s.p2pServer.MaxPeers {
-			return fmt.Errorf("invalid peer config: light peer count (%d) >= total peer count (%d)", s.config.LightPeers, s.p2pServer.MaxPeers)
+	/*
+		maxPeers := s.p2pServer.MaxPeers
+		if s.config.LightServ > 0 {
+			if s.config.LightPeers >= s.p2pServer.MaxPeers {
+				return fmt.Errorf("invalid peer config: light peer count (%d) >= total peer count (%d)", s.config.LightPeers, s.p2pServer.MaxPeers)
+			}
+			maxPeers -= s.config.LightPeers
 		}
-		maxPeers -= s.config.LightPeers
-	}
-	// Start the networking layer and the light server if requested
-	s.handler.Start(maxPeers)
+		// Start the networking layer and the light server if requested
+		s.handler.Start(maxPeers)
+	*/
+	// thunder_patch end
 	return nil
 }
 
@@ -548,7 +584,9 @@ func (s *Ethereum) Stop() error {
 	// Stop all the peer-related stuff first.
 	s.ethDialCandidates.Close()
 	s.snapDialCandidates.Close()
-	s.handler.Stop()
+	// thunder_patch: begin
+	// s.handler.Stop()
+	// thunder_patch: end
 
 	// Then stop everything else.
 	s.bloomIndexer.Close()

@@ -64,9 +64,14 @@ func (r *serviceRegistry) registerName(name string, rcvr interface{}) error {
 		return fmt.Errorf("no service name for type %s", rcvrVal.Type().String())
 	}
 	callbacks := suitableCallbacks(rcvrVal)
-	if len(callbacks) == 0 {
-		return fmt.Errorf("service %T doesn't have any suitable methods/subscriptions to expose", rcvr)
-	}
+	// thunder_patch begin
+	// XXX THUNDER: OK to have no methods for thunder.(*Api).
+	/*
+		if len(callbacks) == 0 {
+			return fmt.Errorf("service %T doesn't have any suitable methods/subscriptions to expose", rcvr)
+		}
+	*/
+	// thunder_patch end
 
 	r.mu.Lock()
 	defer r.mu.Unlock()

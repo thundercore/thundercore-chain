@@ -37,16 +37,22 @@ type sigCache struct {
 }
 
 // MakeSigner returns a Signer based on the given chain config and block number.
-func MakeSigner(config *params.ChainConfig, blockNumber *big.Int) Signer {
+// thunder_patch begin
+func MakeSigner(config *params.ChainConfig, blockNumber *big.Int, session uint32) Signer {
+	rules := config.Rules(blockNumber, session)
+	// thunder_patch original
+	// func MakeSigner(config *params.ChainConfig, blockNumber *big.Int) Signer {
+	// thunder_patch end
+
 	var signer Signer
 	switch {
-	case config.IsLondon(blockNumber):
+	case rules.IsLondon:
 		signer = NewLondonSigner(config.ChainID)
-	case config.IsBerlin(blockNumber):
+	case rules.IsBerlin:
 		signer = NewEIP2930Signer(config.ChainID)
-	case config.IsEIP155(blockNumber):
+	case rules.IsEIP155:
 		signer = NewEIP155Signer(config.ChainID)
-	case config.IsHomestead(blockNumber):
+	case rules.IsHomestead:
 		signer = HomesteadSigner{}
 	default:
 		signer = FrontierSigner{}
@@ -63,6 +69,10 @@ func MakeSigner(config *params.ChainConfig, blockNumber *big.Int) Signer {
 // have the current block number available, use MakeSigner instead.
 func LatestSigner(config *params.ChainConfig) Signer {
 	if config.ChainID != nil {
+		// thunder_patch begin
+		return NewLondonSigner(config.ChainID)
+		// thunder_patch end
+
 		if config.LondonBlock != nil {
 			return NewLondonSigner(config.ChainID)
 		}

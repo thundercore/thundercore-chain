@@ -243,6 +243,10 @@ func (w *wizard) manageGenesis() {
 		fmt.Printf("Which block should London come into effect? (default = %v)\n", w.conf.Genesis.Config.LondonBlock)
 		w.conf.Genesis.Config.LondonBlock = w.readDefaultBigInt(w.conf.Genesis.Config.LondonBlock)
 
+		fmt.Println()
+		fmt.Printf("Which block should Constantinople-Fix (remove EIP-1283) come into effect? (default = %v)\n", w.conf.Genesis.Config.ConstantinopleBlock)
+		w.conf.Genesis.Config.PetersburgBlock = w.readDefaultBigInt(w.conf.Genesis.Config.ConstantinopleBlock)
+
 		out, _ := json.MarshalIndent(w.conf.Genesis.Config, "", "  ")
 		fmt.Printf("Chain configuration updated:\n\n%s\n", out)
 

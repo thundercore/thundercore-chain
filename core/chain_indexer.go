@@ -201,7 +201,12 @@ func (c *ChainIndexer) eventLoop(currentHeader *types.Header, events chan ChainH
 	defer sub.Unsubscribe()
 
 	// Fire the initial new head event to start any outstanding processing
-	c.newHead(currentHeader.Number.Uint64(), false)
+	// thunder_patch begin
+	// force reorg check in case of setHead
+	c.newHead(currentHeader.Number.Uint64(), true)
+	// thunder_patch original
+	// c.newHead(currentHeader.Number.Uint64(), false)
+	// thunder_patch end
 
 	var (
 		prevHeader = currentHeader

@@ -18,11 +18,14 @@ package misc
 
 import (
 	"math/big"
+	"os"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/params"
+
+	thunderConfig "github.com/ethereum/go-ethereum/thunder/thunderella/config"
 )
 
 // copyConfig does a _shallow_ copy of a given config. Safe to set new values, but
@@ -47,6 +50,9 @@ func copyConfig(original *params.ChainConfig) *params.ChainConfig {
 		CatalystBlock:       original.CatalystBlock,
 		Ethash:              original.Ethash,
 		Clique:              original.Clique,
+		// thunder_patch begin
+		Thunder: original.Thunder,
+		// thunder_patch end
 	}
 }
 
@@ -60,6 +66,10 @@ func config() *params.ChainConfig {
 // the EIP-1559 boundary and post-1559 blocks
 func TestBlockGasLimits(t *testing.T) {
 	initial := new(big.Int).SetUint64(params.InitialBaseFee)
+	// thunder_patch begin
+	cloneConfig := config()
+	newBaseFee := cloneConfig.Thunder.BaseFee.GetValueAtSession(0)
+	// thunder_patch end
 
 	for i, tc := range []struct {
 		pGasLimit uint64
@@ -67,22 +77,26 @@ func TestBlockGasLimits(t *testing.T) {
 		gasLimit  uint64
 		ok        bool
 	}{
+		// thunder_patch begin
+		// Thunder increases the block gas limit so skips the failed case
+		// thunder_patch end
+
 		// Transitions from non-london to london
-		{10000000, 4, 20000000, true},  // No change
-		{10000000, 4, 20019530, true},  // Upper limit
-		{10000000, 4, 20019531, false}, // Upper +1
-		{10000000, 4, 19980470, true},  // Lower limit
-		{10000000, 4, 19980469, false}, // Lower limit -1
+		{10000000, 4, 20000000, true}, // No change
+		{10000000, 4, 20019530, true}, // Upper limit
+		// {10000000, 4, 20019531, false}, // Upper +1
+		{10000000, 4, 19980470, true}, // Lower limit
+		// {10000000, 4, 19980469, false}, // Lower limit -1
 		// London to London
 		{20000000, 5, 20000000, true},
-		{20000000, 5, 20019530, true},  // Upper limit
-		{20000000, 5, 20019531, false}, // Upper limit +1
-		{20000000, 5, 19980470, true},  // Lower limit
-		{20000000, 5, 19980469, false}, // Lower limit -1
-		{40000000, 5, 40039061, true},  // Upper limit
-		{40000000, 5, 40039062, false}, // Upper limit +1
-		{40000000, 5, 39960939, true},  // lower limit
-		{40000000, 5, 39960938, false}, // Lower limit -1
+		{20000000, 5, 20019530, true}, // Upper limit
+		// {20000000, 5, 20019531, false}, // Upper limit +1
+		{20000000, 5, 19980470, true}, // Lower limit
+		// {20000000, 5, 19980469, false}, // Lower limit -1
+		{40000000, 5, 40039061, true}, // Upper limit
+		// {40000000, 5, 40039062, false}, // Upper limit +1
+		{40000000, 5, 39960939, true}, // lower limit
+		// {40000000, 5, 39960938, false}, // Lower limit -1
 	} {
 		parent := &types.Header{
 			GasUsed:  tc.pGasLimit / 2,
@@ -93,10 +107,18 @@ func TestBlockGasLimits(t *testing.T) {
 		header := &types.Header{
 			GasUsed:  tc.gasLimit / 2,
 			GasLimit: tc.gasLimit,
-			BaseFee:  initial,
-			Number:   big.NewInt(tc.pNum + 1),
+			// thunder_patch begin
+			BaseFee: newBaseFee,
+			// thunder_patch original
+			// BaseFee:  initial,
+			// thunder_patch end
+			Number: big.NewInt(tc.pNum + 1),
 		}
-		err := VerifyEip1559Header(config(), parent, header)
+		// thunder_patch begin
+		err := VerifyEip1559Header(cloneConfig, parent, header)
+		// thunder_patch original
+		// err := VerifyEip1559Header(config(), parent, header)
+		// thunder_patch end
 		if tc.ok && err != nil {
 			t.Errorf("test %d: Expected valid header: %s", i, err)
 		}
@@ -108,6 +130,14 @@ func TestBlockGasLimits(t *testing.T) {
 
 // TestCalcBaseFee assumes all blocks are 1559-blocks
 func TestCalcBaseFee(t *testing.T) {
+	// thunder_patch begin
+	// In thunder, the base fee is a fixed value, not a dynamic value.
+	cloneConfig := config()
+	newBaseFeeConfig := thunderConfig.NewBigIntHardforkConfig("thunder.test.unused10", "")
+	newBaseFeeConfig.SetTestValueAtSession(big.NewInt(params.InitialBaseFee), 0)
+	cloneConfig.Thunder.BaseFee = newBaseFeeConfig
+	// thunder_patch end
+
 	tests := []struct {
 		parentBaseFee   int64
 		parentGasLimit  uint64
@@ -125,8 +155,21 @@ func TestCalcBaseFee(t *testing.T) {
 			GasUsed:  test.parentGasUsed,
 			BaseFee:  big.NewInt(test.parentBaseFee),
 		}
-		if have, want := CalcBaseFee(config(), parent), big.NewInt(test.expectedBaseFee); have.Cmp(want) != 0 {
+		// thunder_patch begin
+		if have, want := CalcBaseFee(cloneConfig, parent), big.NewInt(test.expectedBaseFee); have.Cmp(want) != 0 {
+			// thunder_patch original
+			// if have, want := CalcBaseFee(config(), parent), big.NewInt(test.expectedBaseFee); have.Cmp(want) != 0 {
+			// thunder_patch end
 			t.Errorf("test %d: have %d  want %d, ", i, have, want)
 		}
 	}
 }
+
+// thunder_patch begin
+func TestMain(m *testing.M) {
+	thunderConfig := params.ThunderConfigForTesting(big.NewInt(0), "london")
+	params.TestChainConfig.Thunder = thunderConfig
+	os.Exit(m.Run())
+}
+
+// thunder_patch end

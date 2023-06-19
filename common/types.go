@@ -85,6 +85,11 @@ func (h Hash) String() string {
 	return h.Hex()
 }
 
+// thunder_patch begin
+func (h Hash) Str() string { return string(h[:]) }
+
+// thunder_patch end
+
 // Format implements fmt.Formatter.
 // Hash supports the %v, %s, %v, %x, %X and %d format verbs.
 func (h Hash) Format(s fmt.State, c rune) {
@@ -207,6 +212,28 @@ func BytesToAddress(b []byte) Address {
 	a.SetBytes(b)
 	return a
 }
+
+// thunder_patch begin
+// XXX THUNDER: same as HexToAddress except gives an error if
+// not properly formatted public address
+func HexToPublicAddressSafe(s string) (Address, error) {
+	// remove the "0x" if necessary
+	if len(s) > 1 {
+		if s[0:2] == "0x" || s[0:2] == "0X" {
+			s = s[2:]
+		}
+	}
+	if len(s) != 40 {
+		return [AddressLength]byte{}, errors.New("invalid address length")
+	}
+	raw, err := hex.DecodeString(s)
+	if err != nil {
+		return [AddressLength]byte{}, err
+	}
+	return BytesToAddress(raw), nil
+}
+
+// thunder_patch end
 
 // BigToAddress returns Address with byte values of b.
 // If b is larger than len(h), b will be cropped from the left.

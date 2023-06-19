@@ -36,6 +36,10 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 )
 
+var (
+	thunderConfig = params.ThunderConfigForTesting(big.NewInt(0), "london")
+)
+
 func TestDefaults(t *testing.T) {
 	cfg := new(Config)
 	setDefaults(cfg)
@@ -70,6 +74,9 @@ func TestEVM(t *testing.T) {
 			t.Fatalf("crashed with: %v", r)
 		}
 	}()
+	cfg := new(Config)
+	setDefaults(cfg)
+	cfg.ChainConfig.Thunder = thunderConfig
 
 	Execute([]byte{
 		byte(vm.DIFFICULTY),
@@ -79,10 +86,14 @@ func TestEVM(t *testing.T) {
 		byte(vm.ORIGIN),
 		byte(vm.BLOCKHASH),
 		byte(vm.COINBASE),
-	}, nil, nil)
+	}, nil, cfg)
 }
 
 func TestExecute(t *testing.T) {
+	cfg := new(Config)
+	setDefaults(cfg)
+	cfg.ChainConfig.Thunder = thunderConfig
+
 	ret, _, err := Execute([]byte{
 		byte(vm.PUSH1), 10,
 		byte(vm.PUSH1), 0,
@@ -90,7 +101,7 @@ func TestExecute(t *testing.T) {
 		byte(vm.PUSH1), 32,
 		byte(vm.PUSH1), 0,
 		byte(vm.RETURN),
-	}, nil, nil)
+	}, nil, cfg)
 	if err != nil {
 		t.Fatal("didn't expect error", err)
 	}
@@ -113,7 +124,12 @@ func TestCall(t *testing.T) {
 		byte(vm.RETURN),
 	})
 
-	ret, _, err := Call(address, nil, &Config{State: state})
+	cfg := new(Config)
+	setDefaults(cfg)
+	cfg.ChainConfig.Thunder = thunderConfig
+	cfg.State = state
+
+	ret, _, err := Call(address, nil, cfg)
 	if err != nil {
 		t.Fatal("didn't expect error", err)
 	}
@@ -147,12 +163,16 @@ func BenchmarkCall(b *testing.B) {
 		b.Fatal(err)
 	}
 
+	cfg := new(Config)
+	setDefaults(cfg)
+	cfg.ChainConfig.Thunder = thunderConfig
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		for j := 0; j < 400; j++ {
-			Execute(code, cpurchase, nil)
-			Execute(code, creceived, nil)
-			Execute(code, refund, nil)
+			Execute(code, cpurchase, cfg)
+			Execute(code, creceived, cfg)
+			Execute(code, refund, cfg)
 		}
 	}
 }
@@ -186,6 +206,7 @@ func benchmarkEVM_Create(bench *testing.B, code string) {
 		},
 		EVMConfig: vm.Config{},
 	}
+	runtimeConfig.ChainConfig.Thunder = thunderConfig
 	// Warm up the intpools and stuff
 	bench.ResetTimer()
 	for i := 0; i < bench.N; i++ {
@@ -293,10 +314,13 @@ func TestBlockhash(t *testing.T) {
 	// The method call to 'test()'
 	input := common.Hex2Bytes("f8a8fd6d")
 	chain := &dummyChain{}
-	ret, _, err := Execute(data, input, &Config{
-		GetHashFn:   core.GetHashFn(header, chain),
-		BlockNumber: new(big.Int).Set(header.Number),
-	})
+	cfg := new(Config)
+	setDefaults(cfg)
+	cfg.ChainConfig.Thunder = thunderConfig
+	cfg.GetHashFn = core.GetHashFn(header, chain)
+	cfg.BlockNumber = new(big.Int).Set(header.Number)
+
+	ret, _, err := Execute(data, input, cfg)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -519,13 +543,17 @@ func TestEip2929Cases(t *testing.T) {
 		fmt.Printf("%v\n\nBytecode: \n```\n0x%x\n```\nOperations: \n```\n%v\n```\n\n",
 			comment,
 			code, ops)
-		Execute(code, nil, &Config{
-			EVMConfig: vm.Config{
-				Debug:     true,
-				Tracer:    vm.NewMarkdownLogger(nil, os.Stdout),
-				ExtraEips: []int{2929},
-			},
-		})
+
+		cfg := new(Config)
+		setDefaults(cfg)
+		cfg.ChainConfig.Thunder = thunderConfig
+		cfg.EVMConfig = vm.Config{
+			Debug:     true,
+			Tracer:    vm.NewMarkdownLogger(nil, os.Stdout),
+			ExtraEips: []int{2929},
+		}
+
+		Execute(code, nil, cfg)
 	}
 
 	{ // First eip testcase
@@ -621,12 +649,26 @@ func TestColdAccountAccessCost(t *testing.T) {
 		{ // EXTCODEHASH(0xff)
 			code: []byte{byte(vm.PUSH1), 0xFF, byte(vm.EXTCODEHASH), byte(vm.POP)},
 			step: 1,
-			want: 2600,
+			// thunder_patch begin
+			// Thunder bump EXTCODEHSAH to 14000
+			// EIP2929 adds dynamicGas function: `gasEip2929AccountCheck`
+			// gas = 14000 + params.ColdAccountAccessCostEIP2929 - params.WarmStorageReadCostEIP2929
+			//     = 14000 + 2600 - 100
+			want: 16500,
+			// thunder_patch original
+			// want: 2600,
+			// thunder_patch end
+
 		},
 		{ // BALANCE(0xff)
 			code: []byte{byte(vm.PUSH1), 0xFF, byte(vm.BALANCE), byte(vm.POP)},
 			step: 1,
-			want: 2600,
+			// thunder_patch begin
+			// The same reason as above case
+			want: 16500,
+			// thunder_patch original
+			// want: 2600,
+			// thunder_patch end
 		},
 		{ // CALL(0xff)
 			code: []byte{
@@ -635,7 +677,15 @@ func TestColdAccountAccessCost(t *testing.T) {
 				byte(vm.PUSH1), 0xff, byte(vm.DUP1), byte(vm.CALL), byte(vm.POP),
 			},
 			step: 7,
-			want: 2855,
+			// thunder_patch begin
+			// CALL -> 14000, eip2929 adds dynamicGas func `gasCallEIP2929`
+			// gas = 14000 + makeCallVariantGasCallEIP2929(call)
+			//     = 14000 + oldCaculator() + params.ColdAccountAccessCostEIP2929 - params.WarmStorageReadCostEIP2929
+			//     = 14000 + 255 + 2600 - 100
+			want: 16755,
+			// thunder_patch original
+			// want: 2855,
+			// thunder_patch end
 		},
 		{ // CALLCODE(0xff)
 			code: []byte{
@@ -644,7 +694,12 @@ func TestColdAccountAccessCost(t *testing.T) {
 				byte(vm.PUSH1), 0xff, byte(vm.DUP1), byte(vm.CALLCODE), byte(vm.POP),
 			},
 			step: 7,
-			want: 2855,
+			// thunder_patch begin
+			// Same reason as above
+			want: 16755,
+			// thunder_patch original
+			// want: 2855,
+			// thunder_patch end
 		},
 		{ // DELEGATECALL(0xff)
 			code: []byte{
@@ -653,7 +708,12 @@ func TestColdAccountAccessCost(t *testing.T) {
 				byte(vm.PUSH1), 0xff, byte(vm.DUP1), byte(vm.DELEGATECALL), byte(vm.POP),
 			},
 			step: 6,
-			want: 2855,
+			// thunder_patch begin
+			// Same reason as above
+			want: 16755,
+			// thunder_patch original
+			// want: 2855,
+			// thunder_patch end
 		},
 		{ // STATICCALL(0xff)
 			code: []byte{
@@ -662,7 +722,12 @@ func TestColdAccountAccessCost(t *testing.T) {
 				byte(vm.PUSH1), 0xff, byte(vm.DUP1), byte(vm.STATICCALL), byte(vm.POP),
 			},
 			step: 6,
-			want: 2855,
+			// thunder_patch begin
+			// Same reason as above
+			want: 16755,
+			// thunder_patch original
+			// want: 2855,
+			// thunder_patch end
 		},
 		{ // SELFDESTRUCT(0xff)
 			code: []byte{
@@ -673,12 +738,15 @@ func TestColdAccountAccessCost(t *testing.T) {
 		},
 	} {
 		tracer := vm.NewStructLogger(nil)
-		Execute(tc.code, nil, &Config{
-			EVMConfig: vm.Config{
-				Debug:  true,
-				Tracer: tracer,
-			},
-		})
+		cfg := new(Config)
+		setDefaults(cfg)
+		cfg.ChainConfig.Thunder = thunderConfig
+		cfg.EVMConfig = vm.Config{
+			Debug:  true,
+			Tracer: tracer,
+		}
+
+		Execute(tc.code, nil, cfg)
 		have := tracer.StructLogs()[tc.step].GasCost
 		if want := tc.want; have != want {
 			for ii, op := range tracer.StructLogs() {

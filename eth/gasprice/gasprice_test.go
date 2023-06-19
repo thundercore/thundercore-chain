@@ -22,8 +22,10 @@ import (
 	"math/big"
 	"testing"
 
+	"github.com/ethereum/go-ethereum/thunder/thunderella/common/chainconfig"
+	"github.com/ethereum/go-ethereum/thunder/thunderella/consensus/thunder"
+
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/consensus/ethash"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/rawdb"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -95,6 +97,10 @@ func (b *testBackend) SubscribeChainHeadEvent(ch chan<- core.ChainHeadEvent) eve
 	return nil
 }
 
+func (b *testBackend) GetClearingGasPrice() *big.Int {
+	return big.NewInt(1)
+}
+
 func newTestBackend(t *testing.T, londonBlock *big.Int, pending bool) *testBackend {
 	var (
 		key, _ = crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
@@ -106,18 +112,31 @@ func newTestBackend(t *testing.T, londonBlock *big.Int, pending bool) *testBacke
 		signer = types.LatestSigner(gspec.Config)
 	)
 	if londonBlock != nil {
+		// thunder_patch begin
+		gspec.Config.Thunder = params.ThunderConfigForTesting(big.NewInt(0), "london")
+		// thunder_patch end
 		gspec.Config.LondonBlock = londonBlock
 		signer = types.LatestSigner(gspec.Config)
 	} else {
+		// thunder_patch begin
+		gspec.Config.Thunder = params.ThunderConfigForTesting(big.NewInt(0), "")
+		// thunder_patch end
 		gspec.Config.LondonBlock = nil
 	}
-	engine := ethash.NewFaker()
+	// thunder_patch begin
+	engine := thunder.New(gspec.Config.Thunder)
+	engine.SetEngineClient(&thunder.FakeEngineClient{})
+	// thunder_patch end
 	db := rawdb.NewMemoryDatabase()
 	genesis, _ := gspec.Commit(db)
 
 	// Generate testing blocks
 	blocks, _ := core.GenerateChain(gspec.Config, genesis, engine, db, testHead+1, func(i int, b *core.BlockGen) {
-		b.SetCoinbase(common.Address{1})
+		// thunder_patch begin
+		b.SetCoinbase(chainconfig.TestnetTxnFeeAddr)
+		// thunder_patch original
+		// b.SetCoinbase(common.Address{1})
+		// thunder_patch end
 
 		var tx *types.Transaction
 		if londonBlock != nil && b.Number().Cmp(londonBlock) >= 0 {
@@ -156,6 +175,15 @@ func newTestBackend(t *testing.T, londonBlock *big.Int, pending bool) *testBacke
 		t.Fatalf("Failed to create local chain, %v", err)
 	}
 	chain.InsertChain(blocks)
+
+	// thunder_patch begin
+	for _, block := range blocks {
+		if err := chain.WriteKnownBlock(block); err != nil {
+			t.Fatalf("Failed to write local chain, %v", err)
+		}
+	}
+	// thunder_patch end
+
 	return &testBackend{chain: chain, pending: pending}
 }
 
@@ -178,10 +206,15 @@ func TestSuggestTipCap(t *testing.T) {
 		expect *big.Int // Expected gasprice suggestion
 	}{
 		{nil, big.NewInt(params.GWei * int64(30))},
-		{big.NewInt(0), big.NewInt(params.GWei * int64(30))},  // Fork point in genesis
-		{big.NewInt(1), big.NewInt(params.GWei * int64(30))},  // Fork point in first block
-		{big.NewInt(32), big.NewInt(params.GWei * int64(30))}, // Fork point in last block
-		{big.NewInt(33), big.NewInt(params.GWei * int64(30))}, // Fork point in the future
+		{big.NewInt(0), big.NewInt(params.GWei * int64(30))}, // Fork point in genesis
+		// thunder_patch original
+		// Etherenum fork is based on block number. However, thunder fork is based on session.
+		// The current thunder london fork session is 0(genesis),
+		// and we comment out the other settings which do not match the relation of block number and session
+		// thunder_patch end
+		// {big.NewInt(1), big.NewInt(params.GWei * int64(30))},  // Fork point in first block
+		// {big.NewInt(32), big.NewInt(params.GWei * int64(30))}, // Fork point in last block
+		// {big.NewInt(33), big.NewInt(params.GWei * int64(30))}, // Fork point in the future
 	}
 	for _, c := range cases {
 		backend := newTestBackend(t, c.fork, false)

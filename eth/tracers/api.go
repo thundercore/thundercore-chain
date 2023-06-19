@@ -260,7 +260,12 @@ func (api *API) traceChain(ctx context.Context, start, end *types.Block, config 
 
 			// Fetch and execute the next block trace tasks
 			for task := range tasks {
-				signer := types.MakeSigner(api.backend.ChainConfig(), task.block.Number())
+				// thunder_patch begin
+				session := api.backend.ChainConfig().Thunder.GetSessionFromDifficulty(task.block.Difficulty(), task.block.Number(), api.backend.ChainConfig().Thunder)
+				signer := types.MakeSigner(api.backend.ChainConfig(), task.block.Number(), session)
+				// thunder_patch original
+				// signer := types.MakeSigner(api.backend.ChainConfig(), task.block.Number())
+				// thunder_patch end
 				blockCtx := core.NewEVMBlockContext(task.block.Header(), api.chainContext(localctx), nil)
 				// Trace all the transactions contained within
 				for i, tx := range task.block.Transactions() {
@@ -277,7 +282,11 @@ func (api *API) traceChain(ctx context.Context, start, end *types.Block, config 
 						break
 					}
 					// Only delete empty objects if EIP158/161 (a.k.a Spurious Dragon) is in effect
-					task.statedb.Finalise(api.backend.ChainConfig().IsEIP158(task.block.Number()))
+					// thunder_patch begin
+					task.statedb.IntermediateRoot(api.backend.ChainConfig().IsEIP158(task.block.Number()))
+					// thunder_patch original
+					// task.statedb.Finalise(api.backend.ChainConfig().IsEIP158(task.block.Number()))
+					// thunder_patch end
 					task.results[i] = &txTraceResult{Result: res}
 				}
 				// Stream the result back to the user or abort on teardown
@@ -495,9 +504,17 @@ func (api *API) traceBlock(ctx context.Context, block *types.Block, config *Trac
 	if err != nil {
 		return nil, err
 	}
+	// thunder_patch begin
+	session := api.backend.ChainConfig().Thunder.GetSessionFromDifficulty(
+		block.Difficulty(), block.Number(), api.backend.ChainConfig().Thunder)
+	// thunder_patch end
 	// Execute all the transaction contained within the block concurrently
 	var (
-		signer  = types.MakeSigner(api.backend.ChainConfig(), block.Number())
+		// thunder_patch begin
+		signer = types.MakeSigner(api.backend.ChainConfig(), block.Number(), session)
+		// thunder_patch original
+		// signer  = types.MakeSigner(api.backend.ChainConfig(), block.Number())
+		// thunder_patch end
 		txs     = block.Transactions()
 		results = make([]*txTraceResult, len(txs))
 
@@ -547,7 +564,11 @@ func (api *API) traceBlock(ctx context.Context, block *types.Block, config *Trac
 		}
 		// Finalize the state so any modifications are written to the trie
 		// Only delete empty objects if EIP158/161 (a.k.a Spurious Dragon) is in effect
-		statedb.Finalise(vmenv.ChainConfig().IsEIP158(block.Number()))
+		// thunder_patch begin
+		statedb.IntermediateRoot(vmenv.ChainConfig().IsEIP158(block.Number()))
+		// thunder_patch original
+		// statedb.Finalise(vmenv.ChainConfig().IsEIP158(block.Number()))
+		// thunder_patch end
 	}
 	close(jobs)
 	pend.Wait()
@@ -595,10 +616,18 @@ func (api *API) standardTraceBlockToFile(ctx context.Context, block *types.Block
 	}
 	logConfig.Debug = true
 
+	// thunder_patch begin
+	session := api.backend.ChainConfig().Thunder.GetSessionFromDifficulty(
+		block.Difficulty(), block.Number(), api.backend.ChainConfig().Thunder)
+	// thunder_patch end
 	// Execute transaction, either tracing all or just the requested one
 	var (
-		dumps       []string
-		signer      = types.MakeSigner(api.backend.ChainConfig(), block.Number())
+		dumps []string
+		// thunder_patch begin
+		signer = types.MakeSigner(api.backend.ChainConfig(), block.Number(), session)
+		// thunder_patch original
+		// signer      = types.MakeSigner(api.backend.ChainConfig(), block.Number())
+		// thunder_patch end
 		chainConfig = api.backend.ChainConfig()
 		vmctx       = core.NewEVMBlockContext(block.Header(), api.chainContext(ctx), nil)
 		canon       = true
@@ -667,7 +696,11 @@ func (api *API) standardTraceBlockToFile(ctx context.Context, block *types.Block
 		}
 		// Finalize the state so any modifications are written to the trie
 		// Only delete empty objects if EIP158/161 (a.k.a Spurious Dragon) is in effect
-		statedb.Finalise(vmenv.ChainConfig().IsEIP158(block.Number()))
+		// thunder_patch begin
+		statedb.IntermediateRoot(vmenv.ChainConfig().IsEIP158(block.Number()))
+		// thunder_patch original
+		// statedb.Finalise(vmenv.ChainConfig().IsEIP158(block.Number()))
+		// thunder_patch end
 
 		// If we've traced the transaction we were looking for, abort
 		if tx.Hash() == txHash {

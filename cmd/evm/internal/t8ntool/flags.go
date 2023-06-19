@@ -30,7 +30,7 @@ var (
 		Name:  "trace",
 		Usage: "Output full trace logs to files <txhash>.jsonl",
 	}
-	TraceDisableMemoryFlag = cli.BoolFlag{
+	TraceDisableMemoryFlag = cli.BoolTFlag{
 		Name:  "trace.nomemory",
 		Usage: "Disable full memory dump in traces",
 	}
@@ -38,7 +38,7 @@ var (
 		Name:  "trace.nostack",
 		Usage: "Disable stack output in traces",
 	}
-	TraceDisableReturnDataFlag = cli.BoolFlag{
+	TraceDisableReturnDataFlag = cli.BoolTFlag{
 		Name:  "trace.noreturndata",
 		Usage: "Disable return data output in traces",
 	}
@@ -111,5 +111,10 @@ var (
 		Name:  "verbosity",
 		Usage: "sets the verbosity level",
 		Value: 3,
+	}
+	InputThunderConfigFlag = cli.StringFlag{
+		Name:  "input.thunder",
+		Usage: "`stdin` or file name of where to find the thunder config to apply. ",
+		Value: "thunder.json",
 	}
 )

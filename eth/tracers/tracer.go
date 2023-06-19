@@ -423,6 +423,16 @@ func New(code string, ctx *Context) (*Tracer, error) {
 				return 1
 			}
 		}
+
+		// thunder_patch begin
+		thunderPrecompiles := vm.AllThunderPrecompiledContracts
+		_, isThunderPrecompiled := thunderPrecompiles[addr]
+		if isThunderPrecompiled {
+			ctx.PushBoolean(true)
+			return 1
+		}
+		// thunder_patch end
+
 		ctx.PushBoolean(false)
 		return 1
 	})
@@ -579,12 +589,22 @@ func (jst *Tracer) CaptureStart(env *vm.EVM, from common.Address, to common.Addr
 	jst.ctx["block"] = env.Context.BlockNumber.Uint64()
 	jst.dbWrapper.db = env.StateDB
 	// Update list of precompiles based on current block
-	rules := env.ChainConfig().Rules(env.Context.BlockNumber)
+	// thunder_patch begin
+	thunderConfig := env.ChainConfig().Thunder
+	session := thunderConfig.GetSessionFromDifficulty(env.Context.Difficulty, env.Context.BlockNumber, thunderConfig)
+	rules := env.ChainConfig().Rules(env.Context.BlockNumber, session)
 	jst.activePrecompiles = vm.ActivePrecompiles(rules)
 
 	// Compute intrinsic gas
-	isHomestead := env.ChainConfig().IsHomestead(env.Context.BlockNumber)
-	isIstanbul := env.ChainConfig().IsIstanbul(env.Context.BlockNumber)
+	isHomestead := rules.IsHomestead
+	isIstanbul := rules.IsIstanbul
+	// thunder_patch original
+	// rules := env.ChainConfig().Rules(env.Context.BlockNumber)
+	// jst.activePrecompiles = vm.ActivePrecompiles(rules)
+	// // Compute intrinsic gas
+	// isHomestead := env.ChainConfig().IsHomestead(env.Context.BlockNumber)
+	// isIstanbul := env.ChainConfig().IsIstanbul(env.Context.BlockNumber)
+	// thunder_patch end
 	intrinsicGas, err := core.IntrinsicGas(input, nil, jst.ctx["type"] == "CREATE", isHomestead, isIstanbul)
 	if err != nil {
 		return

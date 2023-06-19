@@ -26,6 +26,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ethereum/go-ethereum/thunder/thunderella/common/chainconfig"
+	"github.com/ethereum/go-ethereum/thunder/thunderella/consensus/thunder"
+
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/consensus/ethash"
@@ -38,6 +41,7 @@ import (
 	"github.com/ethereum/go-ethereum/node"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rpc"
+	"github.com/go-test/deep"
 )
 
 // Verify that Client implements the ethereum interfaces.
@@ -196,9 +200,16 @@ func newTestBackend(t *testing.T) (*node.Node, []*types.Block) {
 		t.Fatalf("can't create new node: %v", err)
 	}
 	// Create Ethereum Service
-	config := &ethconfig.Config{Genesis: genesis}
+	// thunder_patch begin
+	config := &ethconfig.Config{Genesis: genesis, TxPool: core.TxPoolConfig{EvictionInterval: 12 * time.Second, PriceLimit: params.GWei}}
+	// thunder_patch original
+	// config := &ethconfig.Config{Genesis: genesis}
+	// thunder_patch end
 	config.Ethash.PowMode = ethash.ModeFake
 	ethservice, err := eth.New(n, config)
+	// thunder_patch begin
+	ethservice.Engine().(*thunder.Thunder).SetEngineClient(&thunder.FakeEngineClient{})
+	// thunder_patch end
 	if err != nil {
 		t.Fatalf("can't create new ethereum service: %v", err)
 	}
@@ -209,25 +220,42 @@ func newTestBackend(t *testing.T) (*node.Node, []*types.Block) {
 	if _, err := ethservice.BlockChain().InsertChain(blocks[1:]); err != nil {
 		t.Fatalf("can't import test blocks: %v", err)
 	}
+	// thunder_patch begin
+	for _, block := range blocks[1:] {
+		if err := ethservice.BlockChain().WriteKnownBlock(block); err != nil {
+			t.Fatalf("can't write test block: %v", err)
+		}
+	}
+	// thunder_patch end
+
 	return n, blocks
 }
 
 func generateTestChain() (*core.Genesis, []*types.Block) {
 	db := rawdb.NewMemoryDatabase()
 	config := params.AllEthashProtocolChanges
+	// thunder_patch begin
+	config.Thunder = params.ThunderConfigForTesting(big.NewInt(0), "london")
+	// thunder_patch end
 	genesis := &core.Genesis{
 		Config:    config,
 		Alloc:     core.GenesisAlloc{testAddr: {Balance: testBalance}},
 		ExtraData: []byte("test genesis"),
 		Timestamp: 9000,
 		BaseFee:   big.NewInt(params.InitialBaseFee),
+		// thunder_patch begin
+		Coinbase: chainconfig.TestnetTxnFeeAddr,
+		// thunder_patch end
 	}
 	generate := func(i int, g *core.BlockGen) {
 		g.OffsetTime(5)
 		g.SetExtra([]byte("test"))
 	}
 	gblock := genesis.ToBlock(db)
-	engine := ethash.NewFaker()
+	// thunder_patch begin
+	engine := thunder.New(config.Thunder)
+	engine.SetEngineClient(&thunder.FakeEngineClient{})
+	// thunder_patch end
 	blocks, _ := core.GenerateChain(config, gblock, engine, db, 1, generate)
 	blocks = append([]*types.Block{gblock}, blocks...)
 	return genesis, blocks
@@ -307,8 +335,12 @@ func testHeader(t *testing.T, chain []*types.Block, client *rpc.Client) {
 			if got != nil && got.Number != nil && got.Number.Sign() == 0 {
 				got.Number = big.NewInt(0) // hack to make DeepEqual work
 			}
-			if !reflect.DeepEqual(got, tt.want) {
-				t.Fatalf("HeaderByNumber(%v)\n   = %v\nwant %v", tt.block, got, tt.want)
+			// thunder_patch begin
+			if diff := deep.Equal(got, tt.want); diff != nil {
+				// thunder_patch original
+				// if !reflect.DeepEqual(got, tt.want) {
+				// thunder_patch end
+				t.Fatalf("HeaderByNumber(%v)\n   = %v\nwant %v\ndiff: %v", tt.block, got, tt.want, diff)
 			}
 		})
 	}
@@ -458,7 +490,11 @@ func testStatusFunctions(t *testing.T, client *rpc.Client) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if gasPrice.Cmp(big.NewInt(1875000000)) != 0 { // 1 gwei tip + 0.875 basefee after a 1 gwei fee empty block
+	// thunder_patch begin
+	if gasPrice.Cmp(big.NewInt(2000000000)) != 0 { // 1 gwei tip + 1 basefee after a 1 gwei fee empty block
+		// thunder_patch original
+		// if gasPrice.Cmp(big.NewInt(1875000000)) != 0 { // 1 gwei tip + 0.875 basefee after a 1 gwei fee empty block
+		// thunder_patch end
 		t.Fatalf("unexpected gas price: %v", gasPrice)
 	}
 	// SuggestGasTipCap (should suggest 1 Gwei)
@@ -499,6 +535,7 @@ func testCallContract(t *testing.T, client *rpc.Client) {
 }
 
 func testAtFunctions(t *testing.T, client *rpc.Client) {
+	t.Skip("Thunder: skip pending block (i.e un-mined block)")
 	ec := NewClient(client)
 	// send a transaction for some interesting pending status
 	sendTransaction(ec)

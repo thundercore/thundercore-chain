@@ -175,7 +175,11 @@ func GetBlockReceipts(ctx context.Context, odr OdrBackend, hash common.Hash, num
 		genesis := rawdb.ReadCanonicalHash(odr.Database(), 0)
 		config := rawdb.ReadChainConfig(odr.Database(), genesis)
 
-		if err := receipts.DeriveFields(config, block.Hash(), block.NumberU64(), block.Transactions()); err != nil {
+		// thunder_patch begin
+		if err := receipts.DeriveFields(config, block.Hash(), block.NumberU64(), 0, block.Transactions()); err != nil {
+			// thunder_patch original
+			// if err := receipts.DeriveFields(config, block.Hash(), block.NumberU64(), block.Transactions()); err != nil {
+			// thunder_patch end
 			return nil, err
 		}
 		rawdb.WriteReceipts(odr.Database(), hash, number, receipts)

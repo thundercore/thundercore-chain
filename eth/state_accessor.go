@@ -139,6 +139,7 @@ func (eth *Ethereum) stateAtBlock(block *types.Block, reexec uint64, base *state
 }
 
 // stateAtTransaction returns the execution environment of a certain transaction.
+// Referenced by thunder2.storage.getTtTransferByBlockNumberInternal(...)
 func (eth *Ethereum) stateAtTransaction(block *types.Block, txIndex int, reexec uint64) (core.Message, vm.BlockContext, *state.StateDB, error) {
 	// Short circuit if it's genesis block.
 	if block.NumberU64() == 0 {
@@ -158,8 +159,14 @@ func (eth *Ethereum) stateAtTransaction(block *types.Block, txIndex int, reexec 
 	if txIndex == 0 && len(block.Transactions()) == 0 {
 		return nil, vm.BlockContext{}, statedb, nil
 	}
-	// Recompute transactions up to the target index.
-	signer := types.MakeSigner(eth.blockchain.Config(), block.Number())
+	// // Recompute transactions up to the target index.
+	// thunder_patch begin
+	chainConfig := eth.blockchain.Config()
+	session := chainConfig.Thunder.GetSessionFromDifficulty(block.Difficulty(), block.Number(), chainConfig.Thunder)
+	signer := types.MakeSigner(eth.blockchain.Config(), block.Number(), session)
+	// thunder_patch original
+	// signer := types.MakeSigner(eth.blockchain.Config(), block.Number())
+	// thunder_patch end
 	for idx, tx := range block.Transactions() {
 		// Assemble the transaction call message and return if the requested offset
 		msg, _ := tx.AsMessage(signer, block.BaseFee())
@@ -176,7 +183,11 @@ func (eth *Ethereum) stateAtTransaction(block *types.Block, txIndex int, reexec 
 		}
 		// Ensure any modifications are committed to the state
 		// Only delete empty objects if EIP158/161 (a.k.a Spurious Dragon) is in effect
-		statedb.Finalise(vmenv.ChainConfig().IsEIP158(block.Number()))
+		// thunder_patch begin
+		statedb.IntermediateRoot(vmenv.ChainConfig().IsEIP158(block.Number()))
+		// thunder_patch original
+		// statedb.Finalise(vmenv.ChainConfig().IsEIP158(block.Number()))
+		// thunder_patch end
 	}
 	return nil, vm.BlockContext{}, nil, fmt.Errorf("transaction index %d out of range for block %#x", txIndex, block.Hash())
 }

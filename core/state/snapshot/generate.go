@@ -428,9 +428,17 @@ func (dl *diskLayer) generateRange(root common.Hash, prefix []byte, kind string,
 
 	// We use the snap data to build up a cache which can be used by the
 	// main account trie as a primary lookup when resolving hashes
-	var snapNodeCache ethdb.KeyValueStore
+	// thunder_patch begin
+	var snapNodeCache ethdb.Database
+	// thunder_patch original
+	// var snapNodeCache ethdb.KeyValueStore
+	// thunder_patch end
 	if len(result.keys) > 0 {
-		snapNodeCache = memorydb.New()
+		// thunder_patch begin
+		snapNodeCache = rawdb.NewDatabase(memorydb.New())
+		// thunder_patch original
+		// snapNodeCache = memorydb.New()
+		// thunder_patch end
 		snapTrieDb := trie.NewDatabase(snapNodeCache)
 		snapTrie, _ := trie.New(common.Hash{}, snapTrieDb)
 		for i, key := range result.keys {

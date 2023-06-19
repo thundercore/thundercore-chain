@@ -1,0 +1,50 @@
+[
+  {
+    "role": [
+      "voter"
+    ],
+    "name": "voter_0"
+  },
+  {
+    "role": [
+      "voter"
+    ],
+    "name": "voter_1"
+  },
+  {
+    "role": [
+      "voter"
+    ],
+    "name": "voter_2"
+  },
+  {
+    "role": [
+      "voter"
+    ],
+    "name": "voter_3"
+  },
+  {
+    "role": [
+      "voter"
+    ],
+    "name": "voter_4"
+  },
+  {
+    "role": [
+    "proposer"
+    ],
+    "name": "proposer_0"
+  },
+  {
+    "role": [
+      "bootnode"
+    ],
+    "name": "bootnode_0"
+  },
+  {
+    "role": [
+      "fullnode"
+    ],
+    "name": "fullnode_0"
+  }
+]

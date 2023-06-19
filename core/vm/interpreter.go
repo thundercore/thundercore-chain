@@ -17,12 +17,14 @@
 package vm
 
 import (
+	"flag"
 	"hash"
 	"sync/atomic"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/math"
 	"github.com/ethereum/go-ethereum/log"
+	"github.com/ethereum/go-ethereum/params"
 )
 
 // Config are the configuration options for the Interpreter
@@ -71,6 +73,7 @@ func NewEVMInterpreter(evm *EVM, cfg Config) *EVMInterpreter {
 	// We use the STOP instruction whether to see
 	// the jump table was initialised. If it was not
 	// we'll set the default jump table.
+
 	if cfg.JumpTable[STOP] == nil {
 		var jt JumpTable
 		switch {
@@ -83,7 +86,17 @@ func NewEVMInterpreter(evm *EVM, cfg Config) *EVMInterpreter {
 		case evm.chainRules.IsConstantinople:
 			jt = constantinopleInstructionSet
 		case evm.chainRules.IsByzantium:
-			jt = byzantiumInstructionSet
+			// thunder_patch begin
+			// If testcase changed the gas value of jump table, the next testcase will
+			// use the dirty one because `byzantiumInstructionSet` only initialized once.
+			if flag.Lookup("test.v") != nil {
+				jt = newByzantiumInstructionSet()
+			} else {
+				jt = byzantiumInstructionSet
+			}
+			// thunder_patch original
+			// jt = byzantiumInstructionSet
+			// thunder_patch end
 		case evm.chainRules.IsEIP158:
 			jt = spuriousDragonInstructionSet
 		case evm.chainRules.IsEIP150:
@@ -93,6 +106,24 @@ func NewEVMInterpreter(evm *EVM, cfg Config) *EVMInterpreter {
 		default:
 			jt = frontierInstructionSet
 		}
+		// thunder_patch begin
+		thunderConfig := evm.ChainConfig().Thunder
+		session := thunderConfig.GetSessionFromDifficulty(evm.Context.Difficulty, evm.Context.BlockNumber, thunderConfig)
+
+		if thunderConfig.IsPala2P5GasTable(session) {
+			if jt[EXTCODEHASH] != nil {
+				jt[EXTCODEHASH].constantGas = params.Pala2P5ExtcodeHash
+			}
+			jt[EXTCODESIZE].constantGas = params.Pala2P5ExtcodeSize
+			jt[EXTCODECOPY].constantGas = params.Pala2P5ExtcodeCopy
+			jt[BALANCE].constantGas = params.Pala2P5Balance
+			jt[SLOAD].constantGas = params.Pala2P5SLoad
+			jt[CALL].constantGas = params.Pala2P5Calls
+			jt[CALLCODE].constantGas = params.Pala2P5Calls
+			jt[STATICCALL].constantGas = params.Pala2P5Calls
+			jt[DELEGATECALL].constantGas = params.Pala2P5Calls
+		}
+		// thunder_patch end
 		for i, eip := range cfg.ExtraEips {
 			if err := EnableEIP(eip, &jt); err != nil {
 				// Disable it, so caller can check if it's activated or not

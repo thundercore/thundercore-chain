@@ -953,8 +953,8 @@ func TestTransactionQueueTimeLimitingNoLocals(t *testing.T) {
 
 func testTransactionQueueTimeLimiting(t *testing.T, nolocals bool) {
 	// Reduce the eviction interval to a testable amount
+	evictionInterval := time.Millisecond * 100
 	defer func(old time.Duration) { evictionInterval = old }(evictionInterval)
-	evictionInterval = time.Millisecond * 100
 
 	// Create the pool to test the non-expiration enforcement
 	statedb, _ := state.New(common.Hash{}, state.NewDatabase(rawdb.NewMemoryDatabase()), nil)

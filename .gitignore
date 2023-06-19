@@ -47,3 +47,22 @@ profile.cov
 /dashboard/assets/package-lock.json
 
 **/yarn-error.log
+
+# blockchain unit test random seeds
+thunder/pala/blockchain/testdata/*.seed
+
+# local_chain
+__pycache__
+scripts/local_chain/.generated
+scripts/local_chain/tmp
+scripts/local_chain/tmp2
+scripts/local_chain/keygen/thundertool
+scripts/local_chain/docker-compose.yml
+
+#test
+scripts/test/dataDir/
+resource.json
+
+#ci config
+.circleci
+pala-ci-builder

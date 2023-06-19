@@ -23,11 +23,21 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/consensus"
 	"github.com/ethereum/go-ethereum/consensus/misc"
+	"github.com/ethereum/go-ethereum/core/rawdb"
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/ethdb"
 	"github.com/ethereum/go-ethereum/params"
+
+	thunderchain "github.com/ethereum/go-ethereum/thunder/thunderella/common/chain"
+	"github.com/ethereum/go-ethereum/thunder/thunderella/protocol"
+)
+
+// So we can deterministically seed different blockchains
+var (
+	canonicalSeed = 1
+	forkSeed      = 2
 )
 
 // BlockGen creates blocks for testing.
@@ -267,19 +277,124 @@ func makeHeader(chain consensus.ChainReader, parent *types.Block, state *state.S
 			Difficulty: parent.Difficulty(),
 			UncleHash:  parent.UncleHash(),
 		}),
-		GasLimit: parent.GasLimit(),
-		Number:   new(big.Int).Add(parent.Number(), common.Big1),
-		Time:     time,
+		GasLimit: protocol.BlockGasLimit.GetValueAtU64(
+			thunderchain.Seq(new(big.Int).Add(parent.Number(), common.Big1).Int64())),
+		Number: new(big.Int).Add(parent.Number(), common.Big1),
+		Time:   time,
 	}
-	if chain.Config().IsLondon(header.Number) {
-		header.BaseFee = misc.CalcBaseFee(chain.Config(), parent.Header())
-		if !chain.Config().IsLondon(parent.Number()) {
-			parentGasLimit := parent.GasLimit() * params.ElasticityMultiplier
-			header.GasLimit = CalcGasLimit(parentGasLimit, parentGasLimit)
-		}
+	// thunder_patch begin
+	session := chain.Config().Thunder.GetSessionFromDifficulty(header.Difficulty, header.Number, chain.Config().Thunder)
+	if chain.Config().Rules(header.Number, session).IsLondon {
+		// thunder_patch original
+		// if chain.Config().IsLondon(header.Number) {
+		// thunder_patch end
+
+		// thunder_patch begin
+		header.BaseFee = misc.ThunderBaseFee(chain.Config(), header)
+		// thunder_patch original
+		// header.BaseFee = misc.CalcBaseFee(chain.Config(), parent.Header())
+		// thunder_patch end
+
+		// thunder_patch begin
+		// We fixed the header.GasLimit through BlockGasLimit hardfork config
+		// thunder_patch original
+		// if !chain.Config().IsLondon(parent.Number()) {
+		// parentGasLimit := parent.GasLimit() * params.ElasticityMultiplier
+		// header.GasLimit = CalcGasLimit(parentGasLimit, parentGasLimit)
+		// }
+		// thunder_patch end
 	}
 	return header
 }
+
+// thunder_patch begin
+
+// TODO (thunder) this will crash if n > 0 and engine is Thunder consensus engine because genesis comm info is not set
+func NewThunderCanonical(engine consensus.Engine, n int, full bool) (ethdb.Database, *BlockChain, error) {
+	// Initialize a fresh chain with only a genesis block
+	gspec := DefaultThunderGenesisBlock()
+	db := rawdb.NewMemoryDatabase()
+	gspec.MustCommit(db)
+
+	blockchain, _ := NewBlockChain(db, nil, params.ThunderChainConfig(), engine, vm.Config{}, nil, nil)
+
+	// Create and inject the requested chain
+	if n == 0 {
+		return db, blockchain, nil
+	}
+
+	blocks, _ := GenerateChain(blockchain.Config(), blockchain.Genesis(), blockchain.Engine(), db, n, nil)
+
+	// Full block-chain requested
+	if full {
+		_, err := blockchain.InsertChain(blocks)
+		return db, blockchain, err
+	}
+
+	// Header-only chain requested
+	headers := make([]*types.Header, len(blocks))
+	for i, block := range blocks {
+		headers[i] = block.Header()
+	}
+	_, err := blockchain.InsertHeaderChain(headers, 1)
+	return db, blockchain, err
+}
+
+func GenerateThunderChain(chainreader consensus.ChainReader, parent *types.Block, engine consensus.Engine, db ethdb.Database, n int, gen func(int, *BlockGen)) ([]*types.Block, []types.Receipts) {
+	config := chainreader.Config()
+	blocks, receipts := make(types.Blocks, n), make([]types.Receipts, n)
+	genblock := func(i int, parent *types.Block, statedb *state.StateDB) (*types.Block, types.Receipts) {
+		b := &BlockGen{i: i, chain: blocks, parent: parent, statedb: statedb, config: config, engine: engine}
+		b.header = makeHeader(chainreader, parent, statedb, b.engine)
+
+		// Mutate the state and block according to any hard-fork specs
+		if daoBlock := config.DAOForkBlock; daoBlock != nil {
+			limit := new(big.Int).Add(daoBlock, params.DAOForkExtraRange)
+			if b.header.Number.Cmp(daoBlock) >= 0 && b.header.Number.Cmp(limit) < 0 {
+				if config.DAOForkSupport {
+					b.header.Extra = common.CopyBytes(params.DAOForkBlockExtra)
+				}
+			}
+		}
+		if config.DAOForkSupport && config.DAOForkBlock != nil && config.DAOForkBlock.Cmp(b.header.Number) == 0 {
+			misc.ApplyDAOHardFork(statedb)
+		}
+		// Execute any user modifications to the block
+		if gen != nil {
+			gen(i, b)
+		}
+		if b.engine != nil {
+			// Finalize and seal the block
+			block, err := b.engine.FinalizeAndAssemble(chainreader, b.header, statedb, b.txs, b.uncles, b.receipts)
+			if err != nil {
+				panic(fmt.Sprintf("failed to finalize and assemble block: %v", err))
+			}
+			// Write state changes to db
+			root, err := statedb.Commit(config.IsEIP158(b.header.Number))
+			if err != nil {
+				panic(fmt.Sprintf("state write error: %v", err))
+			}
+			if err := statedb.Database().TrieDB().Commit(root, false, nil); err != nil {
+				panic(fmt.Sprintf("trie write error: %v", err))
+			}
+			return block, b.receipts
+		}
+		return nil, nil
+	}
+	for i := 0; i < n; i++ {
+		statedb, err := state.New(parent.Root(), state.NewDatabase(db), nil)
+		if err != nil {
+			panic(err)
+		}
+		block, receipt := genblock(i, parent, statedb)
+		blocks[i] = block
+		receipts[i] = receipt
+		parent = block
+	}
+	return blocks, receipts
+}
+
+// thunder_patch end
 
 // makeHeaderChain creates a deterministic chain of headers rooted at parent.
 func makeHeaderChain(parent *types.Header, n int, engine consensus.Engine, db ethdb.Database, seed int) []*types.Header {

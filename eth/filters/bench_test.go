@@ -132,7 +132,11 @@ func benchmarkBloomBits(b *testing.B, sectionSize uint64) {
 		var addr common.Address
 		addr[0] = byte(i)
 		addr[1] = byte(i / 256)
-		filter := NewRangeFilter(backend, 0, int64(cnt*sectionSize-1), []common.Address{addr}, nil)
+		// thunder_patch begin
+		filter := NewRangeFilter(backend, 0, int64(cnt*sectionSize-1), []common.Address{addr}, nil, -1)
+		// thunder_patch original
+		// filter := NewRangeFilter(backend, 0, int64(cnt*sectionSize-1), []common.Address{addr}, nil)
+		// thunder_patch end
 		if _, err := filter.Logs(context.Background()); err != nil {
 			b.Error("filter.Find error:", err)
 		}
@@ -172,7 +176,11 @@ func BenchmarkNoBloomBits(b *testing.B) {
 	b.Log("Running filter benchmarks...")
 	start := time.Now()
 	backend := &testBackend{db: db}
-	filter := NewRangeFilter(backend, 0, int64(*headNum), []common.Address{{}}, nil)
+	// thunder_patch begin
+	filter := NewRangeFilter(backend, 0, int64(*headNum), []common.Address{{}}, nil, -1)
+	// thunder_patch original
+	// filter := NewRangeFilter(backend, 0, int64(*headNum), []common.Address{{}}, nil)
+	// thunder_patch end
 	filter.Logs(context.Background())
 	d := time.Since(start)
 	b.Log("Finished running filter benchmarks")

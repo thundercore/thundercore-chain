@@ -79,6 +79,13 @@ func NewSimulatedBackendWithDatabase(database ethdb.Database, alloc core.Genesis
 	genesis := core.Genesis{Config: params.AllEthashProtocolChanges, GasLimit: gasLimit, Alloc: alloc}
 	genesis.MustCommit(database)
 	blockchain, _ := core.NewBlockChain(database, nil, genesis.Config, ethash.NewFaker(), vm.Config{}, nil, nil)
+	// thunder_patch begin
+	// Note: should not enable pala here because pala always writes block into sidechain.
+	// Its testcases write block to canon chain and tests the fork behavior.
+	thunderConfig := params.ThunderConfigForTesting(nil, "london")
+	blockchain.Config().Thunder = thunderConfig
+	genesis.Config.Thunder = thunderConfig
+	// thunder_patch end
 
 	backend := &SimulatedBackend{
 		database:   database,
@@ -644,7 +651,13 @@ func (b *SimulatedBackend) SendTransaction(ctx context.Context, tx *types.Transa
 		panic("could not fetch parent")
 	}
 	// Check transaction validity
-	signer := types.MakeSigner(b.blockchain.Config(), block.Number())
+	// thunder_patch begin
+	header := b.blockchain.CurrentHeader()
+	session := b.config.Thunder.GetSessionFromDifficulty(header.Difficulty, header.Number, b.config.Thunder)
+	signer := types.MakeSigner(b.blockchain.Config(), block.Number(), session)
+	// thunder_patch original
+	// signer := types.MakeSigner(b.blockchain.Config(), block.Number())
+	// thunder_patch end
 	sender, err := types.Sender(signer, tx)
 	if err != nil {
 		panic(fmt.Errorf("invalid transaction: %v", err))
@@ -687,7 +700,11 @@ func (b *SimulatedBackend) FilterLogs(ctx context.Context, query ethereum.Filter
 			to = query.ToBlock.Int64()
 		}
 		// Construct the range filter
-		filter = filters.NewRangeFilter(&filterBackend{b.database, b.blockchain}, from, to, query.Addresses, query.Topics)
+		// thunder_patch begin
+		filter = filters.NewRangeFilter(&filterBackend{b.database, b.blockchain}, from, to, query.Addresses, query.Topics, -1)
+		// thunder_patch original
+		// filter = filters.NewRangeFilter(&filterBackend{b.database, b.blockchain}, from, to, query.Addresses, query.Topics)
+		// thunder_patch end
 	}
 	// Run the filter and return all the logs
 	logs, err := filter.Logs(ctx)

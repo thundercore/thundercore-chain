@@ -1584,7 +1584,11 @@ func makeBoundaryStorageTrie(n int, db *trie.Database) (*trie.Trie, entrySlice) 
 
 func verifyTrie(db ethdb.KeyValueStore, root common.Hash, t *testing.T) {
 	t.Helper()
-	triedb := trie.NewDatabase(db)
+	// thunder_patch begin
+	triedb := trie.NewDatabase(rawdb.NewDatabase(db))
+	// thunder_patch original
+	// triedb := trie.NewDatabase(db)
+	// thunder_patch end
 	accTrie, err := trie.New(root, triedb)
 	if err != nil {
 		t.Fatal(err)

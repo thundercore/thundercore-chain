@@ -388,7 +388,11 @@ type SyncPeer interface {
 //   - The peer delivers a stale response after a previous timeout
 //   - The peer delivers a refusal to serve the requested state
 type Syncer struct {
-	db ethdb.KeyValueStore // Database to store the trie nodes into (and dedup)
+	// thunder_patch begin
+	db ethdb.Database // Database to store the trie nodes into (and dedup)
+	// thunder_patch original
+	// db ethdb.KeyValueStore
+	// thunder_patch end
 
 	root    common.Hash    // Current state trie root being synced
 	tasks   []*accountTask // Current account task set being synced
@@ -449,7 +453,12 @@ type Syncer struct {
 
 // NewSyncer creates a new snapshot syncer to download the Ethereum state over the
 // snap protocol.
-func NewSyncer(db ethdb.KeyValueStore) *Syncer {
+// thunder_patch begin
+func NewSyncer(db ethdb.Database) *Syncer {
+	// thunder_patch original
+	// func NewSyncer(db ethdb.KeyValueStore) *Syncer {
+	// thunder_patch end
+
 	return &Syncer{
 		db: db,
 

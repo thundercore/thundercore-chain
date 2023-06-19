@@ -149,8 +149,11 @@ func loadChain(chainfile string, genesis string) (*Chain, error) {
 	if err != nil {
 		return nil, err
 	}
-
+	// thunder_patch begin
+	gen.Config.Thunder = params.ThunderConfigForTesting(big.NewInt(0), "london")
+	// thunder_patch end
 	c := &Chain{genesis: gen, blocks: blocks, chainConfig: gen.Config}
+
 	return c, nil
 }
 

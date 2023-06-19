@@ -67,6 +67,18 @@ type KeyValueStore interface {
 	io.Closer
 }
 
+// thunder_patch begin
+// HistoryReader contains the methods required to read from immutable history data.
+type HistoryReader interface {
+	// HistoryHas retrieves if a key is present in the history store.
+	HistoryHas(key []byte) (bool, error)
+
+	// HistoryGet retrieves the given key if it's present in the history store.
+	HistoryGet(key []byte) ([]byte, error)
+}
+
+// thunder_patch end
+
 // AncientReader contains the methods required to read from immutable ancient data.
 type AncientReader interface {
 	// HasAncient returns an indicator whether the specified data exists in the
@@ -108,6 +120,9 @@ type AncientWriter interface {
 type Reader interface {
 	KeyValueReader
 	AncientReader
+	// thunder_patch begin
+	HistoryReader
+	// thunder_patch end
 }
 
 // Writer contains the methods required to write data to both key-value as well as
@@ -124,6 +139,16 @@ type AncientStore interface {
 	AncientWriter
 	io.Closer
 }
+
+// thunder_patch begin
+// HistoryStore contains all the methods required to allow handling different
+// history data stores backing immutable chain data store.
+type HistoryStore interface {
+	HistoryReader
+	io.Closer
+}
+
+// thunder_patch end
 
 // Database contains all the methods required by the high level database to not
 // only access the key-value data store but also the chain freezer.

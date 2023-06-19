@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
+	"math/big"
 	"os"
 	"strings"
 	"testing"
@@ -35,6 +36,7 @@ import (
 	"github.com/ethereum/go-ethereum/internal/jsre"
 	"github.com/ethereum/go-ethereum/miner"
 	"github.com/ethereum/go-ethereum/node"
+	"github.com/ethereum/go-ethereum/params"
 )
 
 const (
@@ -106,7 +108,14 @@ func newTester(t *testing.T, confOverride func(*ethconfig.Config)) *tester {
 		Ethash: ethash.Config{
 			PowMode: ethash.ModeTest,
 		},
+		// thunder_patch begin
+		TxPool: core.DefaultTxPoolConfig,
+		// thunder_patch end
 	}
+
+	// thunder_patch begin
+	ethConf.Genesis.Config.Thunder = params.ThunderConfigForTesting(big.NewInt(0), "london")
+	// thunder_patch end
 	if confOverride != nil {
 		confOverride(ethConf)
 	}

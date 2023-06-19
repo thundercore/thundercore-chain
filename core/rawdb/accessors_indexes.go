@@ -33,7 +33,15 @@ import (
 func ReadTxLookupEntry(db ethdb.Reader, hash common.Hash) *uint64 {
 	data, _ := db.Get(txLookupKey(hash))
 	if len(data) == 0 {
-		return nil
+		// thunder_patch begin
+		// Then try to look up the history data in the history store.
+		data, _ = db.HistoryGet(txLookupKey(hash))
+		if len(data) == 0 {
+			return nil
+		}
+		// thunder_patch original
+		// return nil
+		// thunder_patch end
 	}
 	// Database v6 tx lookup just stores the block number
 	if len(data) < common.HashLength {

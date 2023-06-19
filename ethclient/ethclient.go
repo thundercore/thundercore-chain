@@ -23,11 +23,13 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"strconv"
 
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/ethereum/go-ethereum/rpc"
 )
 
@@ -220,6 +222,35 @@ func (ec *Client) TransactionByHash(ctx context.Context, hash common.Hash) (tx *
 	}
 	return json.tx, json.BlockNumber == nil, nil
 }
+
+// thunder_patch begin
+// TransactionByHash returns the transaction and block number with the given hash.
+func (ec *Client) TransactionAndBlockByHash(ctx context.Context, hash common.Hash,
+) (tx *types.Transaction, blockNum int64, err error) {
+	var json *rpcTransaction
+	err = ec.c.CallContext(ctx, &json, "eth_getTransactionByHash", hash)
+	if err != nil {
+		return nil, 0, err
+	} else if json == nil {
+		return nil, 0, ethereum.NotFound
+	} else if json.tx == nil {
+		return nil, 0, errors.New("nil tx")
+	} else if _, r, _ := json.tx.RawSignatureValues(); r == nil {
+		return nil, 0, errors.New("server returned transaction without signature")
+	}
+	setSenderFromServer(json.tx, *json.From, *json.BlockHash)
+	if json.BlockNumber == nil {
+		return nil, 0, errors.New("block number is nil")
+	}
+	blockNum, err = strconv.ParseInt(*json.BlockNumber, 0, 64)
+	if err != nil {
+		return nil, 0, fmt.Errorf("error getting block number from %s: %s", *json.BlockNumber,
+			err)
+	}
+	return tx, blockNum, nil
+}
+
+// thunder_patch end
 
 // TransactionSender returns the sender address of the given transaction. The transaction
 // must be known to the remote node and included in the blockchain at the given block and
@@ -524,6 +555,33 @@ func (ec *Client) SendTransaction(ctx context.Context, tx *types.Transaction) er
 	return ec.c.CallContext(ctx, nil, "eth_sendRawTransaction", hexutil.Encode(data))
 }
 
+// thunder_patch begin
+func (ec *Client) SendTransactions(ctx context.Context, txs []*types.Transaction) error {
+	reqs := make([]rpc.BatchElem, len(txs))
+	for i := range reqs {
+		data, err := rlp.EncodeToBytes(txs[i])
+		if err != nil {
+			return err
+		}
+		reqs[i] = rpc.BatchElem{
+			Method: "eth_sendRawTransaction",
+			Args:   []interface{}{hexutil.Encode(data)},
+			Result: &common.Hash{},
+		}
+	}
+	if err := ec.c.BatchCallContext(ctx, reqs); err != nil {
+		return err
+	}
+	for i := range reqs {
+		if reqs[i].Error != nil {
+			return reqs[i].Error
+		}
+	}
+	return nil
+}
+
+// thunder_patch end
+
 func toBlockNumArg(number *big.Int) string {
 	if number == nil {
 		return "latest"
@@ -554,3 +612,14 @@ func toCallArg(msg ethereum.CallMsg) interface{} {
 	}
 	return arg
 }
+
+// thunder_patch begin
+func (ec *Client) CallContext(ctx context.Context, result interface{}, method string, args ...interface{}) error {
+	return ec.c.CallContext(ctx, result, method, args...)
+}
+
+func (ec *Client) BatchCallContext(ctx context.Context, b []rpc.BatchElem) error {
+	return ec.c.BatchCallContext(ctx, b)
+}
+
+// thunder_patch end

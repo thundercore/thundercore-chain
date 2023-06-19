@@ -88,8 +88,14 @@ func (oracle *Oracle) processBlock(bf *blockFees, percentiles []float64) {
 	if bf.results.baseFee = bf.header.BaseFee; bf.results.baseFee == nil {
 		bf.results.baseFee = new(big.Int)
 	}
-	if chainconfig.IsLondon(big.NewInt(int64(bf.blockNumber + 1))) {
-		bf.results.nextBaseFee = misc.CalcBaseFee(chainconfig, bf.header)
+	// thunder_patch begin
+	session := chainconfig.Thunder.GetSessionFromDifficulty(bf.header.Difficulty, bf.header.Number, chainconfig.Thunder)
+	if chainconfig.Rules(big.NewInt(int64(bf.blockNumber+1)), session).IsLondon {
+		bf.results.nextBaseFee = misc.ThunderBaseFee(chainconfig, bf.header)
+		// thunder_patch original
+		// if chainconfig.IsLondon(big.NewInt(int64(bf.blockNumber + 1))) {
+		// bf.results.nextBaseFee = misc.CalcBaseFee(chainconfig, bf.header)
+		// thunder_patch end
 	} else {
 		bf.results.nextBaseFee = new(big.Int)
 	}

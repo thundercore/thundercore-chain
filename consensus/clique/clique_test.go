@@ -36,6 +36,8 @@ import (
 // already in the database. The bug was that processing the block *prior* to an
 // empty one **also completes** the empty one, ending up in a known-block error.
 func TestReimportMirroredState(t *testing.T) {
+	t.Skip("Thunder: skip clique test")
+
 	// Initialize a Clique chain with a single signer
 	var (
 		db     = rawdb.NewMemoryDatabase()

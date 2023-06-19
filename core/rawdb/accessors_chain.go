@@ -36,6 +36,13 @@ func ReadCanonicalHash(db ethdb.Reader, number uint64) common.Hash {
 	data, _ := db.Ancient(freezerHashTable, number)
 	if len(data) == 0 {
 		data, _ = db.Get(headerHashKey(number))
+		// thunder_patch begin
+		if len(data) == 0 {
+			// Then try to look up the history data in the history store.
+			data, _ = db.HistoryGet(headerHashKey(number))
+		}
+		// thunder_patch end
+
 		// In the background freezer is moving data from leveldb to flatten files.
 		// So during the first check for ancient db, the data is not yet in there,
 		// but when we reach into leveldb, the data was already moved. That would
@@ -115,8 +122,18 @@ func ReadAllCanonicalHashes(db ethdb.Iteratee, from uint64, to uint64, limit int
 }
 
 // ReadHeaderNumber returns the header number assigned to a hash.
-func ReadHeaderNumber(db ethdb.KeyValueReader, hash common.Hash) *uint64 {
+// thunder_patch begin
+func ReadHeaderNumber(db ethdb.Reader, hash common.Hash) *uint64 {
+	// thunder_patch original
+	// func ReadHeaderNumber(db ethdb.KeyValueReader, hash common.Hash) *uint64 {
+	// thunder_patch end
 	data, _ := db.Get(headerNumberKey(hash))
+	// thunder_patch begin
+	if len(data) == 0 {
+		// Then try to look up the history data in the history store.
+		data, _ = db.HistoryGet(headerNumberKey(hash))
+	}
+	// thunder_patch end
 	if len(data) != 8 {
 		return nil
 	}
@@ -141,11 +158,24 @@ func DeleteHeaderNumber(db ethdb.KeyValueWriter, hash common.Hash) {
 }
 
 // ReadHeadHeaderHash retrieves the hash of the current canonical head header.
-func ReadHeadHeaderHash(db ethdb.KeyValueReader) common.Hash {
+// thunder_patch begin
+func ReadHeadHeaderHash(db ethdb.Reader) common.Hash {
+	// thunder_patch original
+	// func ReadHeadHeaderHash(db ethdb.KeyValueReader) common.Hash {
+	// thunder_patch end
 	data, _ := db.Get(headHeaderKey)
 	if len(data) == 0 {
-		return common.Hash{}
+		// thunder_patch begin
+		// Then try to look up the history data in the history store.
+		data, _ = db.HistoryGet(headHeaderKey)
+		if len(data) == 0 {
+			return common.Hash{}
+		}
+		// thunder_patch original
+		// return common.Hash{}
+		// thunder_patch end
 	}
+
 	return common.BytesToHash(data)
 }
 
@@ -157,10 +187,22 @@ func WriteHeadHeaderHash(db ethdb.KeyValueWriter, hash common.Hash) {
 }
 
 // ReadHeadBlockHash retrieves the hash of the current canonical head block.
-func ReadHeadBlockHash(db ethdb.KeyValueReader) common.Hash {
+// thunder_patch begin
+func ReadHeadBlockHash(db ethdb.Reader) common.Hash {
+	// thunder_patch original
+	// func ReadHeadBlockHash(db ethdb.KeyValueReader) common.Hash {
+	// thunder_patch end
 	data, _ := db.Get(headBlockKey)
 	if len(data) == 0 {
-		return common.Hash{}
+		// thunder_patch begin
+		// Then try to look up the history data in the history store.
+		data, _ = db.HistoryGet(headBlockKey)
+		if len(data) == 0 {
+			return common.Hash{}
+		}
+		// thunder_patch original
+		// return common.Hash{}
+		// thunder_patch end
 	}
 	return common.BytesToHash(data)
 }
@@ -173,10 +215,23 @@ func WriteHeadBlockHash(db ethdb.KeyValueWriter, hash common.Hash) {
 }
 
 // ReadHeadFastBlockHash retrieves the hash of the current fast-sync head block.
-func ReadHeadFastBlockHash(db ethdb.KeyValueReader) common.Hash {
+// thunder_patch begin
+func ReadHeadFastBlockHash(db ethdb.Reader) common.Hash {
+	// thunder_patch original
+	// func ReadHeadFastBlockHash(db ethdb.KeyValueReader) common.Hash {
+	// thunder_patch end
+
 	data, _ := db.Get(headFastBlockKey)
 	if len(data) == 0 {
-		return common.Hash{}
+		// thunder_patch begin
+		// Then try to look up the history data in the history store.
+		data, _ = db.HistoryGet(headFastBlockKey)
+		if len(data) == 0 {
+			return common.Hash{}
+		}
+		// thunder_patch original
+		// return common.Hash{}
+		// thunder_patch end
 	}
 	return common.BytesToHash(data)
 }
@@ -190,10 +245,23 @@ func WriteHeadFastBlockHash(db ethdb.KeyValueWriter, hash common.Hash) {
 
 // ReadLastPivotNumber retrieves the number of the last pivot block. If the node
 // full synced, the last pivot will always be nil.
-func ReadLastPivotNumber(db ethdb.KeyValueReader) *uint64 {
+// thunder_patch begin
+func ReadLastPivotNumber(db ethdb.Reader) *uint64 {
+	// thunder_patch original
+	// func ReadLastPivotNumber(db ethdb.KeyValueReader) *uint64 {
+	// thunder_patch end
+
 	data, _ := db.Get(lastPivotKey)
 	if len(data) == 0 {
-		return nil
+		// thunder_patch begin
+		// Then try to look up the history data in the history store.
+		data, _ = db.HistoryGet(lastPivotKey)
+		if len(data) == 0 {
+			return nil
+		}
+		// thunder_patch original
+		// return nil
+		// thunder_patch end
 	}
 	var pivot uint64
 	if err := rlp.DecodeBytes(data, &pivot); err != nil {
@@ -216,10 +284,23 @@ func WriteLastPivotNumber(db ethdb.KeyValueWriter, pivot uint64) {
 
 // ReadFastTrieProgress retrieves the number of tries nodes fast synced to allow
 // reporting correct numbers across restarts.
-func ReadFastTrieProgress(db ethdb.KeyValueReader) uint64 {
+// thunder_patch begin
+func ReadFastTrieProgress(db ethdb.Reader) uint64 {
+	// thunder_patch original
+	// func ReadFastTrieProgress(db ethdb.KeyValueReader) uint64 {
+	// thunder_patch end
+
 	data, _ := db.Get(fastTrieProgressKey)
 	if len(data) == 0 {
-		return 0
+		// thunder_patch begin
+		// Then try to look up the history data in the history store.
+		data, _ = db.HistoryGet(fastTrieProgressKey)
+		if len(data) == 0 {
+			return 0
+		}
+		// thunder_patch original
+		// return 0
+		// thunder_patch end
 	}
 	return new(big.Int).SetBytes(data).Uint64()
 }
@@ -235,8 +316,19 @@ func WriteFastTrieProgress(db ethdb.KeyValueWriter, count uint64) {
 // ReadTxIndexTail retrieves the number of oldest indexed block
 // whose transaction indices has been indexed. If the corresponding entry
 // is non-existent in database it means the indexing has been finished.
-func ReadTxIndexTail(db ethdb.KeyValueReader) *uint64 {
+// thunder_patch begin
+func ReadTxIndexTail(db ethdb.Reader) *uint64 {
+	// thunder_patch original
+	// func ReadTxIndexTail(db ethdb.KeyValueReader) *uint64 {
+	// thunder_patch end
+
 	data, _ := db.Get(txIndexTailKey)
+	// thunder_patch begin
+	if len(data) == 0 {
+		// Then try to look up the history data in the history store.
+		data, _ = db.HistoryGet(txIndexTailKey)
+	}
+	// thunder_patch end
 	if len(data) != 8 {
 		return nil
 	}
@@ -253,8 +345,18 @@ func WriteTxIndexTail(db ethdb.KeyValueWriter, number uint64) {
 }
 
 // ReadFastTxLookupLimit retrieves the tx lookup limit used in fast sync.
-func ReadFastTxLookupLimit(db ethdb.KeyValueReader) *uint64 {
+// thunder_patch begin
+func ReadFastTxLookupLimit(db ethdb.Reader) *uint64 {
+	// thunder_patch original
+	// func ReadFastTxLookupLimit(db ethdb.KeyValueReader) *uint64 {
+	// thunder_patch end
 	data, _ := db.Get(fastTxLookupLimitKey)
+	// thunder_patch begin
+	if len(data) == 0 {
+		// Then try to look up the history data in the history store.
+		data, _ = db.HistoryGet(fastTxLookupLimitKey)
+	}
+	// thunder_patch end
 	if len(data) != 8 {
 		return nil
 	}
@@ -283,6 +385,15 @@ func ReadHeaderRLP(db ethdb.Reader, hash common.Hash, number uint64) rlp.RawValu
 	if len(data) > 0 {
 		return data
 	}
+
+	// thunder_patch begin
+	// Then try to look up the history data in the history store.
+	data, _ = db.HistoryGet(headerKey(number, hash))
+	if len(data) > 0 {
+		return data
+	}
+	// thunder_patch end
+
 	// In the background freezer is moving data from leveldb to flatten files.
 	// So during the first check for ancient db, the data is not yet in there,
 	// but when we reach into leveldb, the data was already moved. That would
@@ -299,9 +410,21 @@ func HasHeader(db ethdb.Reader, hash common.Hash, number uint64) bool {
 	if has, err := db.Ancient(freezerHashTable, number); err == nil && common.BytesToHash(has) == hash {
 		return true
 	}
-	if has, err := db.Has(headerKey(number, hash)); !has || err != nil {
+
+	// thunder_patch begin
+	// In normal case: the entry exists in the main leveldb database.
+	if has, err := db.Has(headerKey(number, hash)); has && err == nil {
+		return true
+	}
+	// Then, look up history database
+	if has, err := db.HistoryHas(headerKey(number, hash)); !has || err != nil {
 		return false
 	}
+	// thunder_patch original
+	// if has, err := db.Has(headerKey(number, hash)); !has || err != nil {
+	// 	return false
+	// }
+	// thunder_patch end
 	return true
 }
 
@@ -373,6 +496,14 @@ func ReadBodyRLP(db ethdb.Reader, hash common.Hash, number uint64) rlp.RawValue 
 	if len(data) > 0 {
 		return data
 	}
+	// thunder_patch begin
+	// Then try to look up the history data in the history store.
+	data, _ = db.HistoryGet(blockBodyKey(number, hash))
+	if len(data) > 0 {
+		return data
+	}
+	// thunder_patch end
+
 	// In the background freezer is moving data from leveldb to flatten files.
 	// So during the first check for ancient db, the data is not yet in there,
 	// but when we reach into leveldb, the data was already moved. That would
@@ -395,6 +526,13 @@ func ReadCanonicalBodyRLP(db ethdb.Reader, number uint64) rlp.RawValue {
 	if len(data) == 0 {
 		// Need to get the hash
 		data, _ = db.Get(blockBodyKey(number, ReadCanonicalHash(db, number)))
+		// thunder_patch begin
+		if len(data) == 0 {
+			// Then try to look up the history data in the history store.
+			data, _ = db.HistoryGet(blockBodyKey(number, ReadCanonicalHash(db, number)))
+		}
+		// thunder_patch end
+
 		// In the background freezer is moving data from leveldb to flatten files.
 		// So during the first check for ancient db, the data is not yet in there,
 		// but when we reach into leveldb, the data was already moved. That would
@@ -418,9 +556,20 @@ func HasBody(db ethdb.Reader, hash common.Hash, number uint64) bool {
 	if has, err := db.Ancient(freezerHashTable, number); err == nil && common.BytesToHash(has) == hash {
 		return true
 	}
-	if has, err := db.Has(blockBodyKey(number, hash)); !has || err != nil {
+	// thunder_patch begin
+	// In normal case: the entry exists in the main leveldb database.
+	if has, err := db.Has(blockBodyKey(number, hash)); has && err == nil {
+		return true
+	}
+	// Then, look up the history database
+	if has, err := db.HistoryHas(blockBodyKey(number, hash)); !has || err != nil {
 		return false
 	}
+	// thunder_patch original
+	// if has, err := db.Has(blockBodyKey(number, hash)); !has || err != nil {
+	// 	return false
+	// }
+	// thunder_patch end
 	return true
 }
 
@@ -471,6 +620,14 @@ func ReadTdRLP(db ethdb.Reader, hash common.Hash, number uint64) rlp.RawValue {
 	if len(data) > 0 {
 		return data
 	}
+	// thunder_patch begin
+	// Then try to look up the history data in the history store.
+	data, _ = db.HistoryGet(headerTDKey(number, hash))
+	if len(data) > 0 {
+		return data
+	}
+	// thunder_patch end
+
 	// In the background freezer is moving data from leveldb to flatten files.
 	// So during the first check for ancient db, the data is not yet in there,
 	// but when we reach into leveldb, the data was already moved. That would
@@ -523,9 +680,20 @@ func HasReceipts(db ethdb.Reader, hash common.Hash, number uint64) bool {
 	if has, err := db.Ancient(freezerHashTable, number); err == nil && common.BytesToHash(has) == hash {
 		return true
 	}
-	if has, err := db.Has(blockReceiptsKey(number, hash)); !has || err != nil {
+	// thunder_patch begin
+	// In normal case: the entry exists in the main leveldb database.
+	if has, err := db.Has(blockReceiptsKey(number, hash)); has && err == nil {
+		return true
+	}
+	// Then, look up the history databases
+	if has, err := db.HistoryHas(blockReceiptsKey(number, hash)); !has || err != nil {
 		return false
 	}
+	// thunder_patch original
+	// if has, err := db.Has(blockReceiptsKey(number, hash)); !has || err != nil {
+	// 	return false
+	// }
+	// thunder_patch end
 	return true
 }
 
@@ -546,6 +714,14 @@ func ReadReceiptsRLP(db ethdb.Reader, hash common.Hash, number uint64) rlp.RawVa
 	if len(data) > 0 {
 		return data
 	}
+	// thunder_patch begin
+	// Then try to look up the history data in the history store.
+	data, _ = db.HistoryGet(blockReceiptsKey(number, hash))
+	if len(data) > 0 {
+		return data
+	}
+	// thunder_patch end
+
 	// In the background freezer is moving data from leveldb to flatten files.
 	// So during the first check for ancient db, the data is not yet in there,
 	// but when we reach into leveldb, the data was already moved. That would
@@ -600,7 +776,16 @@ func ReadReceipts(db ethdb.Reader, hash common.Hash, number uint64, config *para
 		log.Error("Missing body but have receipt", "hash", hash, "number", number)
 		return nil
 	}
-	if err := receipts.DeriveFields(config, hash, number, body.Transactions); err != nil {
+	// thunder_patch begin
+	var session uint32 = 0
+	header := ReadHeader(db, hash, number)
+	if header != nil {
+		session = config.Thunder.GetSessionFromDifficulty(header.Difficulty, header.Number, config.Thunder)
+	}
+	if err := receipts.DeriveFields(config, hash, number, session, body.Transactions); err != nil {
+		// thunder_patch original
+		// if err := receipts.DeriveFields(config, hash, number, body.Transactions); err != nil {
+		// thunder_patch end
 		log.Error("Failed to derive block receipts fields", "hash", hash, "number", number, "err", err)
 		return nil
 	}

@@ -61,6 +61,9 @@ func NewEVMBlockContext(header *types.Header, chain ChainContext, author *common
 		Difficulty:  new(big.Int).Set(header.Difficulty),
 		BaseFee:     baseFee,
 		GasLimit:    header.GasLimit,
+		// thunder_patch_begin
+		MixDigest: header.MixDigest,
+		// thunder_patch_end
 	}
 }
 

@@ -70,11 +70,20 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 	if p.config.DAOForkSupport && p.config.DAOForkBlock != nil && p.config.DAOForkBlock.Cmp(block.Number()) == 0 {
 		misc.ApplyDAOHardFork(statedb)
 	}
+
+	// thunder_patch begin
+	session := p.config.Thunder.GetSessionFromDifficulty(block.Difficulty(), block.Number(), p.config.Thunder)
+	// thunder_patch end
+
 	blockContext := NewEVMBlockContext(header, p.bc, nil)
 	vmenv := vm.NewEVM(blockContext, vm.TxContext{}, statedb, p.config, cfg)
 	// Iterate over and process the individual transactions
 	for i, tx := range block.Transactions() {
-		msg, err := tx.AsMessage(types.MakeSigner(p.config, header.Number), header.BaseFee)
+		// thunder_patch begin
+		msg, err := tx.AsMessage(types.MakeSigner(p.config, header.Number, session), header.BaseFee)
+		// thunder_patch original
+		// msg, err := tx.AsMessage(types.MakeSigner(p.config, header.Number), header.BaseFee)
+		// thunder_patch end
 		if err != nil {
 			return nil, nil, 0, fmt.Errorf("could not apply tx %d [%v]: %w", i, tx.Hash().Hex(), err)
 		}
@@ -87,9 +96,14 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 		allLogs = append(allLogs, receipt.Logs...)
 	}
 	// Finalize the block, applying any consensus engine specific extras (e.g. block rewards)
-	p.engine.Finalize(p.bc, header, statedb, block.Transactions(), block.Uncles())
+	// thudner_patch begin
+	// Thunder engine caculates the reward fee from receipts.
+	_, err := p.engine.FinalizeAndAssemble(p.bc, header, statedb, block.Transactions(), block.Uncles(), receipts)
+	// thunder_patch original
+	// p.engine.Finalize(p.bc, header, statedb, block.Transactions(), block.Uncles())
+	// thunder_patch end
 
-	return receipts, allLogs, *usedGas, nil
+	return receipts, allLogs, *usedGas, err
 }
 
 func applyTransaction(msg types.Message, config *params.ChainConfig, bc ChainContext, author *common.Address, gp *GasPool, statedb *state.StateDB, blockNumber *big.Int, blockHash common.Hash, tx *types.Transaction, usedGas *uint64, evm *vm.EVM) (*types.Receipt, error) {
@@ -105,8 +119,22 @@ func applyTransaction(msg types.Message, config *params.ChainConfig, bc ChainCon
 
 	// Update the state with pending changes.
 	var root []byte
-	if config.IsByzantium(blockNumber) {
-		statedb.Finalise(true)
+	// thunder_patch begin
+	session := config.Thunder.GetSessionFromDifficulty(evm.Context.Difficulty, blockNumber, config.Thunder)
+	if config.Rules(blockNumber, session).IsByzantium {
+		// thunder_patch original
+		// if config.IsByzantium(blockNumber) {
+		// thunder_patch begin
+		if config.Thunder.RNGVersion.GetValueAtSession(int64(session)) != "testnet-fix-rng-broken" {
+			// Finalise will not update the trie after tag `v1.10` but we need to update it
+			// because the hash will be used in RNG.
+			statedb.IntermediateRoot(true)
+		} else {
+			statedb.Finalise(true)
+		}
+		// thunder_original
+		// statedb.Finalise(true)
+		// thunder_patch end
 	} else {
 		root = statedb.IntermediateRoot(config.IsEIP158(blockNumber)).Bytes()
 	}
@@ -142,7 +170,15 @@ func applyTransaction(msg types.Message, config *params.ChainConfig, bc ChainCon
 // for the transaction, gas used and an error if the transaction failed,
 // indicating the block was invalid.
 func ApplyTransaction(config *params.ChainConfig, bc ChainContext, author *common.Address, gp *GasPool, statedb *state.StateDB, header *types.Header, tx *types.Transaction, usedGas *uint64, cfg vm.Config) (*types.Receipt, error) {
-	msg, err := tx.AsMessage(types.MakeSigner(config, header.Number), header.BaseFee)
+	// thunder_patch begin
+	session := config.Thunder.GetSessionFromDifficulty(header.Difficulty, header.Number, config.Thunder)
+	// thunder_patch end
+
+	// thunder_patch begin
+	msg, err := tx.AsMessage(types.MakeSigner(config, header.Number, session), header.BaseFee)
+	// thunder_patch original
+	// msg, err := tx.AsMessage(types.MakeSigner(config, header.Number), header.BaseFee)
+	// thunder_patch end
 	if err != nil {
 		return nil, err
 	}

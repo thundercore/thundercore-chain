@@ -117,6 +117,12 @@ var (
 		Name:  "datadir.ancient",
 		Usage: "Data directory for ancient chain segments (default = inside chaindata)",
 	}
+	// thunder_patch begin
+	HistoryFlag = DirectoryFlag{
+		Name:  "datadir.history",
+		Usage: "Data directory order list for history stores and use comma as split character(default = 'chaindata.1,chaindata.2 ...')",
+	}
+	// thunder_patch end
 	MinFreeDiskSpaceFlag = DirectoryFlag{
 		Name:  "datadir.minfreedisk",
 		Usage: "Minimum free disk space in MB, once reached triggers auto shut down (default = --cache.gc converted to MB, 0 = disabled)",
@@ -1528,6 +1534,11 @@ func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *ethconfig.Config) {
 	if ctx.GlobalIsSet(AncientFlag.Name) {
 		cfg.DatabaseFreezer = ctx.GlobalString(AncientFlag.Name)
 	}
+	// thunder_patch begin
+	if ctx.GlobalIsSet(HistoryFlag.Name) {
+		cfg.DatabaseHistory = ctx.GlobalString(HistoryFlag.Name)
+	}
+	// thunder_patch end
 
 	if gcmode := ctx.GlobalString(GCModeFlag.Name); gcmode != "full" && gcmode != "archive" {
 		Fatalf("--%s must be either 'full' or 'archive'", GCModeFlag.Name)
@@ -1822,13 +1833,19 @@ func MakeChainDatabase(ctx *cli.Context, stack *node.Node, readonly bool) ethdb.
 		err     error
 		chainDb ethdb.Database
 	)
-	if ctx.GlobalString(SyncModeFlag.Name) == "light" {
-		name := "lightchaindata"
-		chainDb, err = stack.OpenDatabase(name, cache, handles, "", readonly)
-	} else {
-		name := "chaindata"
-		chainDb, err = stack.OpenDatabaseWithFreezer(name, cache, handles, ctx.GlobalString(AncientFlag.Name), "", readonly)
-	}
+	// thunder_patch begin
+	// thundercore does not support light or freezer mode
+	chainDb, err = stack.OpenDatabaseWithHistory("chaindata", cache, handles, ctx.GlobalString(HistoryFlag.Name), "", readonly)
+	// thunder_patch original
+	// if ctx.GlobalString(SyncModeFlag.Name) == "light" {
+	// 	name := "lightchaindata"
+	// 	chainDb, err = stack.OpenDatabase(name, cache, handles, "", readonly)
+	// } else {
+	// 	name := "chaindata"
+	// 	chainDb, err = stack.OpenDatabaseWithFreezer(name, cache, handles, ctx.GlobalString(AncientFlag.Name), "", readonly)
+	// }
+	// thunder_patch end
+
 	if err != nil {
 		Fatalf("Could not open database: %v", err)
 	}

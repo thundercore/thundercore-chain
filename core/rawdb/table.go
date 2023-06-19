@@ -40,6 +40,19 @@ func (t *table) Close() error {
 	return nil
 }
 
+// thunder_patch begin
+// HistoryHas retrieves if a prefixed version of a key is present in the history database.
+func (t *table) HistoryHas(key []byte) (bool, error) {
+	return t.db.HistoryHas(append([]byte(t.prefix), key...))
+}
+
+// HistoryGet retrieves the given prefixed key if it's present in the history database.
+func (t *table) HistoryGet(key []byte) ([]byte, error) {
+	return t.db.HistoryGet(append([]byte(t.prefix), key...))
+}
+
+// thunder_patch end
+
 // Has retrieves if a prefixed version of a key is present in the database.
 func (t *table) Has(key []byte) (bool, error) {
 	return t.db.Has(append([]byte(t.prefix), key...))

@@ -47,10 +47,18 @@ type txSenderCacher struct {
 // newTxSenderCacher creates a new transaction sender background cacher and starts
 // as many processing goroutines as allowed by the GOMAXPROCS on construction.
 func newTxSenderCacher(threads int) *txSenderCacher {
+	// thunder_patch begin
 	cacher := &txSenderCacher{
-		tasks:   make(chan *txSenderCacherRequest, threads),
+		tasks:   make(chan *txSenderCacherRequest, threads*100),
 		threads: threads,
 	}
+	// thunder_patch original
+	// cacher := &txSenderCacher{
+	// 	tasks:   make(chan *txSenderCacherRequest, threads),
+	// 	threads: threads,
+	// }
+	// thunder_patch end
+
 	for i := 0; i < threads; i++ {
 		go cacher.cache()
 	}

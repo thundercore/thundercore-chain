@@ -212,29 +212,34 @@ func newWorker(config *Config, chainConfig *params.ChainConfig, engine consensus
 		resubmitIntervalCh: make(chan time.Duration),
 		resubmitAdjustCh:   make(chan *intervalAdjust, resubmitAdjustChanSize),
 	}
+
+	// thunder_patch begin
+	return worker
+
+	// thunder_patch original
 	// Subscribe NewTxsEvent for tx pool
-	worker.txsSub = eth.TxPool().SubscribeNewTxsEvent(worker.txsCh)
+	// worker.txsSub = eth.TxPool().SubscribeNewTxsEvent(worker.txsCh)
 	// Subscribe events for blockchain
-	worker.chainHeadSub = eth.BlockChain().SubscribeChainHeadEvent(worker.chainHeadCh)
-	worker.chainSideSub = eth.BlockChain().SubscribeChainSideEvent(worker.chainSideCh)
+	// worker.chainHeadSub = eth.BlockChain().SubscribeChainHeadEvent(worker.chainHeadCh)
+	// worker.chainSideSub = eth.BlockChain().SubscribeChainSideEvent(worker.chainSideCh)
 
 	// Sanitize recommit interval if the user-specified one is too short.
-	recommit := worker.config.Recommit
-	if recommit < minRecommitInterval {
-		log.Warn("Sanitizing miner recommit interval", "provided", recommit, "updated", minRecommitInterval)
-		recommit = minRecommitInterval
-	}
+	// recommit := worker.config.Recommit
+	// if recommit < minRecommitInterval {
+	// 	log.Warn("Sanitizing miner recommit interval", "provided", recommit, "updated", minRecommitInterval)
+	// 	recommit = minRecommitInterval
+	// }
 
-	go worker.mainLoop()
-	go worker.newWorkLoop(recommit)
-	go worker.resultLoop()
-	go worker.taskLoop()
+	// go worker.mainLoop()
+	// go worker.newWorkLoop(recommit)
+	// go worker.resultLoop()
+	// go worker.taskLoop()
 
 	// Submit first work to initialize pending state.
-	if init {
-		worker.startCh <- struct{}{}
-	}
-	return worker
+	// if init {
+	// 	worker.startCh <- struct{}{}
+	// }
+	// return worker
 }
 
 // setEtherbase sets the etherbase used to initialize the block coinbase field.
@@ -274,21 +279,33 @@ func (w *worker) enablePreseal() {
 
 // pending returns the pending state and corresponding block.
 func (w *worker) pending() (*types.Block, *state.StateDB) {
-	// return a snapshot to avoid contention on currentMu mutex
-	w.snapshotMu.RLock()
-	defer w.snapshotMu.RUnlock()
-	if w.snapshotState == nil {
+	// thunder_patch begin
+	block := w.chain.CurrentBlock()
+	state, err := w.chain.StateAt(block.Root())
+	if err != nil {
 		return nil, nil
 	}
-	return w.snapshotBlock, w.snapshotState.Copy()
+	return block, state
+	// return a snapshot to avoid contention on currentMu mutex
+	// w.snapshotMu.RLock()
+	// defer w.snapshotMu.RUnlock()
+	// if w.snapshotState == nil {
+	// 	return nil, nil
+	// }
+	// return w.snapshotBlock, w.snapshotState.Copy()
+	// thunder_patch end
 }
 
 // pendingBlock returns pending block.
 func (w *worker) pendingBlock() *types.Block {
+	// thunder_patch begin
+	return w.chain.CurrentBlock()
+	// thunder_patch original
 	// return a snapshot to avoid contention on currentMu mutex
-	w.snapshotMu.RLock()
-	defer w.snapshotMu.RUnlock()
-	return w.snapshotBlock
+	// w.snapshotMu.RLock()
+	// defer w.snapshotMu.RUnlock()
+	// return w.snapshotBlock
+	// thunder_patch end
 }
 
 // pendingBlockAndReceipts returns pending block and corresponding receipts.
@@ -669,7 +686,11 @@ func (w *worker) makeCurrent(parent *types.Block, header *types.Header) error {
 	state.StartPrefetcher("miner")
 
 	env := &environment{
-		signer:    types.MakeSigner(w.chainConfig, header.Number),
+		// thunder_patch begin
+		signer: types.MakeSigner(w.chainConfig, header.Number, 0),
+		// thunder_patch original
+		// signer:    types.MakeSigner(w.chainConfig, header.Number, 0),
+		// thunder_patch end
 		state:     state,
 		ancestors: mapset.NewSet(),
 		family:    mapset.NewSet(),

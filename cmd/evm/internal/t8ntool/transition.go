@@ -27,6 +27,9 @@ import (
 	"path"
 	"strings"
 
+	"github.com/ethereum/go-ethereum/thunder/thunderella/config"
+	"github.com/ethereum/go-ethereum/thunder/thunderella/thundervm"
+
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core"
@@ -65,9 +68,14 @@ func (n *NumberedError) Error() string {
 	return fmt.Sprintf("ERROR(%d): %v", n.errorCode, n.err.Error())
 }
 
-func (n *NumberedError) Code() int {
+func (n *NumberedError) ExitCode() int {
 	return n.errorCode
 }
+
+// compile-time conformance test
+var (
+	_ cli.ExitCoder = (*NumberedError)(nil)
+)
 
 type input struct {
 	Alloc core.GenesisAlloc `json:"alloc,omitempty"`
@@ -76,7 +84,7 @@ type input struct {
 	TxRlp string            `json:"txsRlp,omitempty"`
 }
 
-func Main(ctx *cli.Context) error {
+func Transition(ctx *cli.Context) error {
 	// Configure the go-ethereum logger
 	glogger := log.NewGlogHandler(log.StreamHandler(os.Stderr, log.TerminalFormat(false)))
 	glogger.Verbosity(log.Lvl(ctx.Int(VerbosityFlag.Name)))
@@ -134,16 +142,17 @@ func Main(ctx *cli.Context) error {
 	// stdin input or in files.
 	// Check if anything needs to be read from stdin
 	var (
-		prestate Prestate
-		txs      types.Transactions // txs to apply
-		allocStr = ctx.String(InputAllocFlag.Name)
-
-		envStr    = ctx.String(InputEnvFlag.Name)
-		txStr     = ctx.String(InputTxsFlag.Name)
-		inputData = &input{}
+		prestate   Prestate
+		txs        types.Transactions // txs to apply
+		allocStr   = ctx.String(InputAllocFlag.Name)
+		thunderStr = ctx.String(InputThunderConfigFlag.Name)
+		envStr     = ctx.String(InputEnvFlag.Name)
+		txStr      = ctx.String(InputTxsFlag.Name)
+		inputData  = &input{}
+		stThunder  stThunderConfig
 	)
 	// Figure out the prestate alloc
-	if allocStr == stdinSelector || envStr == stdinSelector || txStr == stdinSelector {
+	if allocStr == stdinSelector || envStr == stdinSelector || txStr == stdinSelector || thunderStr == stdinSelector {
 		decoder := json.NewDecoder(os.Stdin)
 		if err := decoder.Decode(inputData); err != nil {
 			return NewError(ErrorJson, fmt.Errorf("failed unmarshaling stdin: %v", err))
@@ -161,6 +170,18 @@ func Main(ctx *cli.Context) error {
 		}
 	}
 	prestate.Pre = inputData.Alloc
+
+	if thunderStr != stdinSelector {
+		inFile, err := os.Open(thunderStr)
+		if err != nil {
+			return NewError(ErrorIO, fmt.Errorf("failed reading thunder file: %v", err))
+		}
+		defer inFile.Close()
+		decoder := json.NewDecoder(inFile)
+		if err := decoder.Decode(&stThunder); err != nil {
+			return NewError(ErrorJson, fmt.Errorf("failed unmarshaling thunder-file: %v", err))
+		}
+	}
 
 	// Set the block environment
 	if envStr != stdinSelector {
@@ -189,6 +210,43 @@ func Main(ctx *cli.Context) error {
 	} else {
 		chainConfig = cConf
 		vmConfig.ExtraEips = extraEips
+
+		chainConfig.Thunder = &params.ThunderConfig{
+			PalaBlock:                      big.NewInt(0),
+			VerifyBidSession:               0,
+			GetSessionFromDifficulty:       func(i1, i2 *big.Int, tc *params.ThunderConfig) uint32 { return 0 },
+			GetBlockSnFromDifficulty:       func(i1, i2 *big.Int, tc *params.ThunderConfig) (uint32, uint32, uint32) { return 0, 0, 0 },
+			IsInConsensusTx:                func(evm params.Evm) bool { return stThunder.IsInConsensusTx == 1 },
+			BidVerificationEnabled:         func() bool { return stThunder.BidVerificationEnabled == 1 },
+			ElectionStopBlockSessionOffset: config.NewInt64HardforkConfig("test.electionStopBlockSessionOffset", ""),
+			ProposerListName:               config.NewStringHardforkConfig("test.proposerListName", ""),
+			MaxCodeSize:                    config.NewInt64HardforkConfig("test.maxCodeSize", ""),
+			RewardScheme:                   config.NewStringHardforkConfig("test.rewardScheme", ""),
+			VaultGasUnlimited:              config.NewBoolHardforkConfig("test.vaultGasUnlimited", ""),
+			GasTable:                       config.NewStringHardforkConfig("test.gasTable", ""),
+			EVMHardforkVersion:             config.NewStringHardforkConfig("test.evmHardforkVersion", ""),
+			IsConsensusInfoInHeader:        config.NewBoolHardforkConfig("test.isConsensusInfoInHeader", ""),
+			RNGVersion:                     config.NewStringHardforkConfig("test.rngVersion", ""),
+			TokenInflation:                 config.NewBigIntHardforkConfig("test.inflation", ""),
+			BaseFee:                        config.NewBigIntHardforkConfig("test.basefee", ""),
+			CommitteeRewardRatio:           config.NewInt64HardforkConfig("test.committee.reward.ratio", ""),
+		}
+
+		chainConfig.Thunder.ElectionStopBlockSessionOffset.SetTestValueAt(stThunder.ElectionStopBlockSessionOffset, 0)
+		chainConfig.Thunder.ProposerListName.SetTestValueAtSession(stThunder.ProposerListName, 0)
+		chainConfig.Thunder.MaxCodeSize.SetTestValueAtSession(stThunder.MaxCodeSize, 0)
+		chainConfig.Thunder.RewardScheme.SetTestValueAtSession(stThunder.RewardScheme, 0)
+		chainConfig.Thunder.VaultGasUnlimited.SetTestValueAtSession(stThunder.VaultGasUnlimited == 1, 0)
+		chainConfig.Thunder.GasTable.SetTestValueAtSession(stThunder.GasTable, 0)
+		chainConfig.Thunder.EVMHardforkVersion.SetTestValueAtSession(stThunder.EVMHardforkVersion, 0)
+		chainConfig.Thunder.IsConsensusInfoInHeader.SetTestValueAtSession(stThunder.IsConsensusInfoInHeader == 1, 0)
+		chainConfig.Thunder.RNGVersion.SetTestValueAtSession(stThunder.RNGVersion, 0)
+		chainConfig.Thunder.BaseFee.SetTestValueAtSession(stThunder.BaseFee, 0)
+		chainConfig.Thunder.TokenInflation.SetTestValueAtSession(stThunder.TokenInflation, 0)
+		chainConfig.Thunder.CommitteeRewardRatio.SetTestValueAtSession(stThunder.CommitteeRewardRatio, 0)
+		thundervm.IsRNGActive.SetTestValueAt(true, 0)
+		thundervm.VerifyBid.SetTestValueAtSession(true, 0)
+		thundervm.IsBlockSnGetterActive.SetTestValueAtSession(true, 0)
 	}
 	// Set the chain id
 	chainConfig.ChainID = big.NewInt(ctx.Int64(ChainIDFlag.Name))
@@ -241,7 +299,11 @@ func Main(ctx *cli.Context) error {
 		}
 	}
 	// We may have to sign the transactions.
-	signer := types.MakeSigner(chainConfig, big.NewInt(int64(prestate.Env.Number)))
+	// thunder_patch begin
+	signer := types.MakeSigner(chainConfig, big.NewInt(int64(prestate.Env.Number)), 0)
+	// thunder_patch original
+	// signer := types.MakeSigner(chainConfig, big.NewInt(int64(prestate.Env.Number)))
+	// thunder_patch end
 
 	if txs, err = signUnsignedTransactions(txsWithKeys, signer); err != nil {
 		return NewError(ErrorJson, fmt.Errorf("failed signing transactions: %v", err))
@@ -251,6 +313,20 @@ func Main(ctx *cli.Context) error {
 		if prestate.Env.BaseFee == nil {
 			return NewError(ErrorVMConfig, errors.New("EIP-1559 config but missing 'currentBaseFee' in env section"))
 		}
+	}
+	if env := prestate.Env; env.Difficulty == nil {
+		// If difficulty was not provided by caller, we need to calculate it.
+		switch {
+		case env.ParentDifficulty == nil:
+			return NewError(ErrorVMConfig, errors.New("currentDifficulty was not provided, and cannot be calculated due to missing parentDifficulty"))
+		case env.Number == 0:
+			return NewError(ErrorVMConfig, errors.New("currentDifficulty needs to be provided for block number 0"))
+		case env.Timestamp <= env.ParentTimestamp:
+			return NewError(ErrorVMConfig, fmt.Errorf("currentDifficulty cannot be calculated -- currentTime (%d) needs to be after parent time (%d)",
+				env.Timestamp, env.ParentTimestamp))
+		}
+		prestate.Env.Difficulty = calcDifficulty(chainConfig, env.Number, env.Timestamp,
+			env.ParentTimestamp, env.ParentDifficulty, env.ParentUncleHash)
 	}
 	// Run the test and aggregate the result
 	s, result, err := prestate.Apply(vmConfig, chainConfig, txs, ctx.Int64(RewardFlag.Name), getTracer)
@@ -395,7 +471,7 @@ func dispatchOutput(ctx *cli.Context, baseDir string, result *ExecutionResult, a
 		return err
 	}
 	if len(stdOutObject) > 0 {
-		b, err := json.MarshalIndent(stdOutObject, "", " ")
+		b, err := json.MarshalIndent(stdOutObject, "", "  ")
 		if err != nil {
 			return NewError(ErrorJson, fmt.Errorf("failed marshalling output: %v", err))
 		}
@@ -403,7 +479,7 @@ func dispatchOutput(ctx *cli.Context, baseDir string, result *ExecutionResult, a
 		os.Stdout.Write([]byte("\n"))
 	}
 	if len(stdErrObject) > 0 {
-		b, err := json.MarshalIndent(stdErrObject, "", " ")
+		b, err := json.MarshalIndent(stdErrObject, "", "  ")
 		if err != nil {
 			return NewError(ErrorJson, fmt.Errorf("failed marshalling output: %v", err))
 		}

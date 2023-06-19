@@ -36,6 +36,10 @@ func NewEnv(cfg *Config) *vm.EVM {
 		Difficulty:  cfg.Difficulty,
 		GasLimit:    cfg.GasLimit,
 		BaseFee:     cfg.BaseFee,
+
+		// thunder_patch_begin
+		MixDigest: cfg.MixDigest,
+		// thunder_patch_end
 	}
 
 	return vm.NewEVM(blockContext, txContext, cfg.State, cfg.ChainConfig, cfg.EVMConfig)

@@ -17,6 +17,7 @@
 package trie
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -58,6 +59,38 @@ var (
 	memcacheCommitSizeMeter  = metrics.NewRegisteredMeter("trie/memcache/commit/size", nil)
 )
 
+// thunder_patch begin
+func GetMetrices() string {
+	memcacheFlushTimeTimerValues := memcacheFlushTimeTimer.Values()
+	memcacheGCTimeTimerValues := memcacheGCTimeTimer.Values()
+	memcacheCommitTimeTimerValues := memcacheCommitTimeTimer.Values()
+	metrics := map[string]interface{}{
+		"memcacheCleanHit":    memcacheCleanHitMeter.Count(),
+		"memcacheCleanMiss":   memcacheCleanMissMeter.Count(),
+		"memcacheCleanRead":   memcacheCleanReadMeter.Count(),
+		"memcacheCleanWrite":  memcacheCleanWriteMeter.Count(),
+		"memcacheFlushTime":   memcacheFlushNodesMeter.Count(),
+		"memcacheFlushSize":   memcacheFlushSizeMeter.Count(),
+		"memcacheGCNodes":     memcacheGCNodesMeter.Count(),
+		"memcacheGCSize":      memcacheGCSizeMeter.Count(),
+		"memcacheCommitNodes": memcacheCommitNodesMeter.Count(),
+		"memcacheCommitSize":  memcacheCommitSizeMeter.Count(),
+	}
+	if len(memcacheFlushTimeTimerValues) > 0 {
+		metrics["memcacheFlushTime"] = memcacheFlushTimeTimerValues[len(memcacheFlushTimeTimerValues)-1]
+	}
+	if len(memcacheGCTimeTimerValues) > 0 {
+		metrics["memcacheGCTime"] = memcacheGCTimeTimerValues[len(memcacheGCTimeTimerValues)-1]
+	}
+	if len(memcacheCommitTimeTimerValues) > 0 {
+		metrics["memcacheCommitTime"] = memcacheCommitTimeTimerValues[len(memcacheCommitTimeTimerValues)-1]
+	}
+	str, _ := json.Marshal(metrics)
+	return string(str)
+}
+
+//thunder_patch end
+
 // Database is an intermediate write layer between the trie data structures and
 // the disk database. The aim is to accumulate trie writes in-memory and only
 // periodically flush a couple tries to disk, garbage collecting the remainder.
@@ -67,7 +100,11 @@ var (
 // behind this split design is to provide read access to RPC handlers and sync
 // servers even while the trie is executing expensive garbage collection.
 type Database struct {
-	diskdb ethdb.KeyValueStore // Persistent storage for matured trie nodes
+	// thunder_patch begin
+	diskdb ethdb.Database // Persistent storage for matured trie nodes
+	// thunder_patch original
+	// diskdb ethdb.KeyValueStore // Persistent storage for matured trie nodes
+	// thunder_patch end
 
 	cleans  *fastcache.Cache            // GC friendly memory cache of clean node RLPs
 	dirties map[common.Hash]*cachedNode // Data and references relationships of dirty trie nodes
@@ -282,14 +319,23 @@ type Config struct {
 // NewDatabase creates a new trie database to store ephemeral trie content before
 // its written out to disk or garbage collected. No read cache is created, so all
 // data retrievals will hit the underlying disk database.
-func NewDatabase(diskdb ethdb.KeyValueStore) *Database {
+// thunder_patch begin
+func NewDatabase(diskdb ethdb.Database) *Database {
+	// thunder_patch original
+	// func NewDatabase(diskdb ethdb.KeyValueStore) *Database {
+	// thunder_patch end
 	return NewDatabaseWithConfig(diskdb, nil)
 }
 
 // NewDatabaseWithConfig creates a new trie database to store ephemeral trie content
 // before its written out to disk or garbage collected. It also acts as a read cache
 // for nodes loaded from disk.
-func NewDatabaseWithConfig(diskdb ethdb.KeyValueStore, config *Config) *Database {
+// thunder_patch begin
+func NewDatabaseWithConfig(diskdb ethdb.Database, config *Config) *Database {
+	// thunder_patch original
+	// func NewDatabaseWithConfig(diskdb ethdb.KeyValueStore, config *Config) *Database {
+	// thunder_patch end
+
 	var cleans *fastcache.Cache
 	if config != nil && config.Cache > 0 {
 		if config.Journal == "" {
@@ -312,7 +358,11 @@ func NewDatabaseWithConfig(diskdb ethdb.KeyValueStore, config *Config) *Database
 }
 
 // DiskDB retrieves the persistent storage backing the trie database.
-func (db *Database) DiskDB() ethdb.KeyValueStore {
+// thunder_patch begin
+func (db *Database) DiskDB() ethdb.Database {
+	// thunder_patch original
+	// func (db *Database) DiskDB() ethdb.KeyValueStore {
+	// thunder_patch end
 	return db.diskdb
 }
 
@@ -392,6 +442,11 @@ func (db *Database) node(hash common.Hash) node {
 
 	// Content unavailable in memory, attempt to retrieve from disk
 	enc, err := db.diskdb.Get(hash[:])
+	// thunder_patch begin
+	if len(enc) == 0 {
+		enc, err = db.diskdb.HistoryGet(hash[:])
+	}
+	// thunder_patch end
 	if err != nil || enc == nil {
 		return nil
 	}

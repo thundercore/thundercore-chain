@@ -63,6 +63,10 @@ type Node struct {
 const (
 	initializingState = iota
 	runningState
+	// thunder_patch begin
+	// The closingState state is closing all service, and the closedState status is closing all database
+	closingState
+	// thunder_patch end
 	closedState
 )
 
@@ -162,7 +166,11 @@ func (n *Node) Start() error {
 	case runningState:
 		n.lock.Unlock()
 		return ErrNodeRunning
-	case closedState:
+		// thunder_patch begin
+	case closingState, closedState:
+		// thunder_patch original
+		// case closedState:
+		// thunder_patch end
 		n.lock.Unlock()
 		return ErrNodeStopped
 	}
@@ -207,8 +215,19 @@ func (n *Node) Close() error {
 	case initializingState:
 		// The node was never started.
 		return n.doClose(nil)
-	case runningState:
+
+		// thunder_patch begin
+	case runningState, closingState:
+		// thunder_patch original
+		// case runningState:
+		// thunder_patch end
+
 		// The node was started, release resources acquired by Start().
+		// thunder_patch begin
+		n.lock.Lock()
+		n.state = closingState
+		n.lock.Unlock()
+		// thunder_patch end
 		var errs []error
 		if err := n.stopServices(n.lifecycles); err != nil {
 			errs = append(errs, err)
@@ -482,7 +501,12 @@ func (n *Node) RPCHandler() (*rpc.Server, error) {
 	n.lock.Lock()
 	defer n.lock.Unlock()
 
-	if n.state == closedState {
+	// thunder_patch begin
+	if n.state == closingState || n.state == closedState {
+		// thunder_patch original
+		// if n.state == closedState {
+		// thunder_patch end
+
 		return nil, ErrNodeStopped
 	}
 	return n.inprocHandler, nil
@@ -568,6 +592,34 @@ func (n *Node) OpenDatabase(name string, cache, handles int, namespace string, r
 	return db, err
 }
 
+// thunder_patch begin
+// OpenDatabaseWithHistory opens an existing database with the given name (or
+// creates one if no previous can be found) from within the node's data directory,
+// also attaching histroy stores with order list (or loading by lexicographical order
+// when list is empty) to it that query cold immutable chain data from the history stores.
+func (n *Node) OpenDatabaseWithHistory(name string, cache, handles int, historyOrderList, namespace string, readonly bool) (ethdb.Database, error) {
+	n.lock.Lock()
+	defer n.lock.Unlock()
+	if n.state == closedState {
+		return nil, ErrNodeStopped
+	}
+
+	var db ethdb.Database
+	var err error
+	if n.config.DataDir == "" {
+		db = rawdb.NewMemoryDatabase()
+	} else {
+		db, err = rawdb.NewLevelDBDatabaseWithHistory(n.config.instanceDir(), name, historyOrderList, cache, handles, namespace, readonly)
+	}
+
+	if err == nil {
+		db = n.wrapDatabase(db)
+	}
+	return db, err
+}
+
+// thunder_patch end
+
 // OpenDatabaseWithFreezer opens an existing database with the given name (or
 // creates one if no previous can be found) from within the node's data directory,
 // also attaching a chain freezer to it that moves ancient chain data from the
@@ -638,3 +690,34 @@ func (n *Node) closeDatabases() (errors []error) {
 	}
 	return errors
 }
+
+// thunder_patch begin
+func (n *Node) ResumeRpc() error {
+	n.lock.Lock()
+	state := n.state
+	n.lock.Unlock()
+	if state == closingState || state == closedState {
+		return ErrNodeStopped
+	}
+
+	n.startStopLock.Lock()
+	defer n.startStopLock.Unlock()
+
+	return n.startRPC()
+}
+
+func (n *Node) SuspendRpc() {
+	n.lock.Lock()
+	state := n.state
+	n.lock.Unlock()
+	if state == closingState || state == closedState {
+		return
+	}
+
+	n.startStopLock.Lock()
+	defer n.startStopLock.Unlock()
+
+	n.stopRPC()
+}
+
+// thunder_patch end

@@ -1,0 +1,23 @@
+#!/bin/bash
+
+pip3 show solc-select 1>/dev/null
+if [ $? != 0 ]; then
+   echo "Not Installed solc-select and install it"
+   pip3 install solc-select
+fi
+
+solccheck=`solc-select versions | grep 0.4.25 | wc -l`
+if [ $solccheck == "0" ]; then
+   echo "Not Installed solc 0.4.25"
+   solc-select install 0.4.25
+fi
+
+solccheck=`solc-select versions | grep 0.8.9 | wc -l`
+if [ $solccheck == "0" ]; then
+   echo "Not Installed solc 0.8.9"
+   solc-select install 0.8.9
+fi
+
+solc-select use 0.8.9
+echo "solc-select ready"
+exit 0

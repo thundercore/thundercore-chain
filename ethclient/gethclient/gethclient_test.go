@@ -21,6 +21,9 @@ import (
 	"context"
 	"math/big"
 	"testing"
+	"time"
+
+	"github.com/ethereum/go-ethereum/thunder/thunderella/consensus/thunder"
 
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
@@ -52,9 +55,16 @@ func newTestBackend(t *testing.T) (*node.Node, []*types.Block) {
 		t.Fatalf("can't create new node: %v", err)
 	}
 	// Create Ethereum Service
-	config := &ethconfig.Config{Genesis: genesis}
+	// thunder_patch begin
+	config := &ethconfig.Config{Genesis: genesis, TxPool: core.TxPoolConfig{EvictionInterval: 12 * time.Second}}
+	// thunder_patch original
+	// config := &ethconfig.Config{Genesis: genesis}
+	// thunder_patch end
 	config.Ethash.PowMode = ethash.ModeFake
 	ethservice, err := eth.New(n, config)
+	// thunder_patch begin
+	ethservice.Engine().(*thunder.Thunder).SetEngineClient(&thunder.FakeEngineClient{})
+	// thunder_patch end
 	if err != nil {
 		t.Fatalf("can't create new ethereum service: %v", err)
 	}
@@ -65,12 +75,22 @@ func newTestBackend(t *testing.T) (*node.Node, []*types.Block) {
 	if _, err := ethservice.BlockChain().InsertChain(blocks[1:]); err != nil {
 		t.Fatalf("can't import test blocks: %v", err)
 	}
+	// thunder_patch begin
+	for _, block := range blocks[1:] {
+		if err := ethservice.BlockChain().WriteKnownBlock(block); err != nil {
+			t.Fatalf("can't write test block: %v", err)
+		}
+	}
+	// thunder_patch end
 	return n, blocks
 }
 
 func generateTestChain() (*core.Genesis, []*types.Block) {
 	db := rawdb.NewMemoryDatabase()
 	config := params.AllEthashProtocolChanges
+	// thunder_patch begin
+	config.Thunder = params.ThunderConfigForTesting(big.NewInt(0), "london")
+	// thunder_patch end
 	genesis := &core.Genesis{
 		Config:    config,
 		Alloc:     core.GenesisAlloc{testAddr: {Balance: testBalance}},
@@ -82,7 +102,10 @@ func generateTestChain() (*core.Genesis, []*types.Block) {
 		g.SetExtra([]byte("test"))
 	}
 	gblock := genesis.ToBlock(db)
-	engine := ethash.NewFaker()
+	// thunder_patch begin
+	engine := thunder.New(config.Thunder)
+	engine.SetEngineClient(&thunder.FakeEngineClient{})
+	// thunder_patch end
 	blocks, _ := core.GenerateChain(config, gblock, engine, db, 1, generate)
 	blocks = append([]*types.Block{gblock}, blocks...)
 	return genesis, blocks
@@ -135,11 +158,15 @@ func testAccessList(t *testing.T, client *rpc.Client) {
 	ec := New(client)
 	// Test transfer
 	msg := ethereum.CallMsg{
-		From:     testAddr,
-		To:       &common.Address{},
-		Gas:      21000,
-		GasPrice: big.NewInt(765625000),
-		Value:    big.NewInt(1),
+		From: testAddr,
+		To:   &common.Address{},
+		Gas:  21000,
+		// thunder_patch begin
+		GasPrice: big.NewInt(params.GWei),
+		// thunder_patch original
+		// GasPrice: big.NewInt(765625000),
+		// thunder_patch end
+		Value: big.NewInt(1),
 	}
 	al, gas, vmErr, err := ec.CreateAccessList(context.Background(), msg)
 	if err != nil {
@@ -258,7 +285,12 @@ func testSubscribePendingTransactions(t *testing.T, client *rpc.Client) {
 		t.Fatal(err)
 	}
 	// Create transaction
-	tx := types.NewTransaction(0, common.Address{1}, big.NewInt(1), 22000, big.NewInt(1), nil)
+	// thunder_patch begin
+	// current basefee is 1 Gwei, set 2 Gwei as gasPrice
+	tx := types.NewTransaction(0, common.Address{1}, big.NewInt(1), 22000, big.NewInt(2*params.GWei), nil)
+	// thunder_patch original
+	// tx := types.NewTransaction(0, common.Address{1}, big.NewInt(1), 22000, big.NewInt(1), nil)
+	// thunder_patch end
 	signer := types.LatestSignerForChainID(chainID)
 	signature, err := crypto.Sign(signer.Hash(tx).Bytes(), testKey)
 	if err != nil {

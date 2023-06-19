@@ -20,10 +20,12 @@ import (
 	"math"
 	"math/big"
 	"math/rand"
+	"os"
 	"testing"
 
+	"github.com/ethereum/go-ethereum/thunder/thunderella/consensus/thunder"
+
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/consensus/ethash"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/rawdb"
 	"github.com/ethereum/go-ethereum/core/state"
@@ -64,17 +66,38 @@ func newTestBackend(blocks int) *testBackend {
 func newTestBackendWithGenerator(blocks int, generator func(int, *core.BlockGen)) *testBackend {
 	// Create a database pre-initialize with a genesis block
 	db := rawdb.NewMemoryDatabase()
-	(&core.Genesis{
+	// thunder_patch begin
+	genesis := &core.Genesis{
 		Config: params.TestChainConfig,
 		Alloc:  core.GenesisAlloc{testAddr: {Balance: big.NewInt(100_000_000_000_000_000)}},
-	}).MustCommit(db)
+	}
+	genesis.MustCommit(db)
+	engine := thunder.New(genesis.Config.Thunder)
+	engine.SetEngineClient(&thunder.FakeEngineClient{})
+	// thunder_patch original
+	// (&core.Genesis{
+	// 	Config: params.TestChainConfig,
+	// 	Alloc:  core.GenesisAlloc{testAddr: {Balance: big.NewInt(100_000_000_000_000_000)}},
+	// }).MustCommit(db)
+	// thunder_patch end
 
-	chain, _ := core.NewBlockChain(db, nil, params.TestChainConfig, ethash.NewFaker(), vm.Config{}, nil, nil)
-
-	bs, _ := core.GenerateChain(params.TestChainConfig, chain.Genesis(), ethash.NewFaker(), db, blocks, generator)
+	// thunder_patch begin
+	chain, _ := core.NewBlockChain(db, nil, params.TestChainConfig, engine, vm.Config{}, nil, nil)
+	bs, _ := core.GenerateChain(params.TestChainConfig, chain.Genesis(), engine, db, blocks, generator)
+	// thunder_patch original
+	// chain, _ := core.NewBlockChain(db, nil, params.TestChainConfig, ethash.NewFaker(), vm.Config{}, nil, nil)
+	// bs, _ := core.GenerateChain(params.TestChainConfig, chain.Genesis(), ethash.NewFaker(), db, blocks, generator)
+	// thunder_patch end
 	if _, err := chain.InsertChain(bs); err != nil {
 		panic(err)
 	}
+	// thunder_patch begin
+	for _, block := range bs {
+		if err := chain.WriteKnownBlock(block); err != nil {
+			panic(err)
+		}
+	}
+	// thunder_patch end
 	txconfig := core.DefaultTxPoolConfig
 	txconfig.Journal = "" // Don't litter the disk with test journals
 
@@ -584,3 +607,12 @@ func testGetBlockReceipts(t *testing.T, protocol uint) {
 		}
 	}
 }
+
+// thunder_patch begin
+func TestMain(m *testing.M) {
+	thunderConfig := params.ThunderConfigForTesting(big.NewInt(0), "london")
+	params.TestChainConfig.Thunder = thunderConfig
+	os.Exit(m.Run())
+}
+
+// thunder_patch end

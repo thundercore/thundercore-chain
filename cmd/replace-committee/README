@@ -1,0 +1,80 @@
+Goal: we'd like to use real data to run the upgrade from Pala r1 to r2.
+However, we cannot (and shoudn't) use the real proposing/voting keys used in Testnet/Mainnet.
+As a workaround, we use the binary replace-committee to replace the latest voters
+recorded in the state db. We don't need to worry about the proposer since there is no
+proposer election for now and the proposer list is read from configs.
+
+Note that if someone uses an independent tool to verify blocks and states from the genesis,
+the verification will fail because the election result of voters are changed by outside
+instead of applying transactions.
+
+Here is an usage to demonstrate the proof of concept.
+
+1. Run two processes to generate a chain and stop it after a session is completed
+(so we will have an election result):
+
+  $ tools/pala-dev -r proposer
+  ...
+
+  $ tools/pala-dev -r voter | grep status | sed -E 's/.*(status.*),.*/\1/'
+  status=[(1,1) (0,0,0)]
+  status=[(1,1) (0,0,1)]
+  status=[(1,1) (1,1,1)]
+  ...
+  status=[(2,1) (2,1,6)]
+
+  Note that you'd be better to stop the proposer first to avoid a chance that the proposer has one more block compared to the voter.
+
+2. Run local chain to generate keys. You don't need to really start the chain.
+You can stop the action once the keys are generated.
+
+  $ ./chain start -b local_chain/multi-config.json
+
+  Edit the generated files local_chain/.generated/keys/fastpath/keystore/genesis_comm_info.json to keep only the last voter
+  and save as a new file /path/to/thunder/genesis_comm_info.json
+
+  Edit the generated local_chain/tmp2/stakein_keys.json to keep the last stakein key
+  and save as a new file /path/to/thunder/stakein_keys.json
+
+3. Replace the commitee:
+
+  $ cat replace.sh
+  for r in proposer voter
+  do
+    go run src/thunder2/cmd/replace-committee/replaceCommittee.go pala-dev/dataDir/$r genesis_comm_info.json stakein_keys.json
+  done
+
+4. Replace the voter's keys:
+
+  Copy the last "PrivateKey" of stakeinX and voteX in local_chain/.generated/keys/fastpath/keystore/keys.json
+  to pala-dev/keys/fastpath/keystore/comm_0/keys.json. Currently, X = 3 if you generate keys with local_chain/multi-config.json.
+
+5. Restart pala
+
+  $ tools/pala-dev -r proposer
+  ...
+  $ tools/pala-dev -r voter
+  ...
+
+Expect to see liveness after a while.
+
+Remember to check:
+  * There is liveness after a new session.
+  * The election succeeds in each new session.
+
+Troubleshooting:
+
+1. Check the logs of the voter to see whether the role is correct:
+
+    NOTE : [/consensus]: mediator.go:853: [voter_0] I am a voter at session 2 with id=ef82d94b9675ba6b0d9b57568f14d7bbeaf1db35
+    NOTE : [/consensus]: mediator.go:1272: [voter_0] name/id mapping: session2-proposer0 -> 4ca67168e86602cb192f917dd424662b935440b6
+    NOTE : [/consensus]: mediator.go:1272: [voter_0] name/id mapping: session2-voter0 -> ef82d94b9675ba6b0d9b57568f14d7bbeaf1db35
+
+2. Use RPC to check comm info:
+
+  $ cat get_voter_pub_key.sh
+  #!/bin/bash
+  for s in 1 2 3 4
+  do
+    go run  src/thunder2/cmd/ipc/main.go -p pala-dev/dataDir/voter/thunder2.ipc dev_getCommInfo $s | jq ".result.MemberInfo[0].PubVoteKey" | cut -c 1-10
+  done

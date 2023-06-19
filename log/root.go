@@ -10,6 +10,19 @@ var (
 	StderrHandler = StreamHandler(os.Stderr, LogfmtFormat())
 )
 
+// thunder_patch begin
+var thunderLogger ThunderLogger
+
+func GetThunderLgr() ThunderLogger {
+	return thunderLogger
+}
+
+func SetThunderLgr(lgr ThunderLogger) {
+	thunderLogger = lgr
+}
+
+// thunder_patch end
+
 func init() {
 	root.SetHandler(DiscardHandler())
 }

@@ -23,6 +23,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"os"
 	"strings"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -37,6 +38,10 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/ethereum/go-ethereum/trie"
+
+	"github.com/ethereum/go-ethereum/thunder/thunderella/common/chainconfig"
+	"github.com/ethereum/go-ethereum/thunder/thunderella/config"
+	"github.com/ethereum/go-ethereum/thunder/thunderella/protocol"
 )
 
 //go:generate gencodec -type Genesis -field-override genesisSpecMarshaling -out gen_genesis.go
@@ -385,6 +390,78 @@ func DefaultRinkebyGenesisBlock() *Genesis {
 	}
 }
 
+// thunder_patch begin
+func GetGenesisFromConfig(genesisPath string) *Genesis {
+	file, err := os.Open(genesisPath)
+	if err != nil {
+		log.Error("Cannot open genesis config file %s. Error: %v", genesisPath, err)
+		return nil
+	}
+	defer file.Close()
+
+	genesis := new(Genesis)
+	if err := json.NewDecoder(file).Decode(genesis); err != nil {
+		log.Error("Invalid genesis file. Error: %v", err)
+		return nil
+	}
+	genesis.Config.ChainID = params.ThunderChainConfig().ChainID
+	// Which block number should be put here?
+	genesis.GasLimit = protocol.BlockGasLimit.GetValueAtU64(config.InitialBlockNum)
+	genesis.Difficulty = big.NewInt(1)
+
+	return genesis
+}
+
+// DefaultThunderGenesisBlock returns the Thunder network genesis block.
+func DefaultThunderGenesisBlock() *Genesis {
+	// Honor genesis config file first
+	genesisPath := chainconfig.GenesisConfigPath.Get()
+	if genesisPath != "" {
+		return GetGenesisFromConfig(genesisPath)
+	}
+
+	return &Genesis{
+		Config:    params.ThunderChainConfig(),
+		Timestamp: 1492009146,
+		// What block number should be put here?
+		GasLimit:   protocol.BlockGasLimit.GetValueAtU64(config.InitialBlockNum),
+		Difficulty: big.NewInt(1),
+		Alloc:      thunderAllocData(),
+	}
+}
+
+func thunderAllocData() GenesisAlloc {
+	// We use the testnet alloc data plus a zero account.
+	var p []struct{ Addr, Balance *big.Int }
+	if err := rlp.NewStream(strings.NewReader(ropstenAllocData), 0).Decode(&p); err != nil {
+		panic(err)
+	}
+	ga := make(GenesisAlloc, len(p)+1)
+	for _, account := range p {
+		ga[common.BigToAddress(account.Addr)] = GenesisAccount{Balance: account.Balance}
+	}
+	thousand := big.NewInt(1000)
+	thousandGwei := big.NewInt(1000 * params.GWei)
+	ga[chainconfig.TestnetLowValueAddr] = GenesisAccount{Balance: thousandGwei}
+
+	b := big.NewInt(params.Ether)
+	b = (&big.Int{}).Mul(b, thousand) // 1000 Thunders
+	b = (&big.Int{}).Mul(b, thousand) // 1 million Thunders
+	d := big.NewInt(100)
+	b = (&big.Int{}).Mul(b, d) // 100 million Thunders
+	ga[chainconfig.TestnetTestingAddr] = GenesisAccount{Balance: b}
+	ga[chainconfig.TestnetTestingWeb3JSAddr] = GenesisAccount{Balance: b}
+	ga[chainconfig.TestnetTestingTxStressAddr] = GenesisAccount{Balance: b}
+	e := big.NewInt(99)
+	b = (&big.Int{}).Mul(b, e) // 9.9 billion Thunders
+	ga[chainconfig.TestnetSecureAddr] = GenesisAccount{Balance: b}
+	return ga
+}
+
+// thunder_patch end
+
+// DeveloperGenesisBlock returns the 'geth --dev' genesis block. Note, this must
+// be seeded with the
 // DefaultGoerliGenesisBlock returns the Görli network genesis block.
 func DefaultGoerliGenesisBlock() *Genesis {
 	return &Genesis{

@@ -18,6 +18,7 @@ package core
 
 import (
 	"errors"
+	"fmt"
 	"math"
 	"math/big"
 	"sort"
@@ -64,6 +65,10 @@ var (
 	// configured for the transaction pool.
 	ErrUnderpriced = errors.New("transaction underpriced")
 
+	// ErrGasPriceTooLow is returned if a transaction's basefee price is below the basefee
+	// of current block.
+	ErrGasPriceTooLow = errors.New("gas price lower than basefee")
+
 	// ErrTxPoolOverflow is returned if the transaction pool is full and can't accpet
 	// another remote transaction.
 	ErrTxPoolOverflow = errors.New("txpool is full")
@@ -87,7 +92,9 @@ var (
 )
 
 var (
-	evictionInterval    = time.Minute     // Time interval to check for evictable transactions
+	// thunder_patch begin
+	// evictionInterval    = time.Minute     // Time interval to check for evictable transactions
+	// thunder_patch end
 	statsReportInterval = 8 * time.Second // Time interval to report transaction pool stats
 )
 
@@ -156,6 +163,9 @@ type TxPoolConfig struct {
 	GlobalQueue  uint64 // Maximum number of non-executable transaction slots for all accounts
 
 	Lifetime time.Duration // Maximum amount of time non-executable transaction are queued
+	// thunder_patch begin
+	EvictionInterval time.Duration // Evict tx interval
+	// thunder_patch end
 }
 
 // DefaultTxPoolConfig contains the default configurations for the transaction
@@ -173,6 +183,9 @@ var DefaultTxPoolConfig = TxPoolConfig{
 	GlobalQueue:  1024,
 
 	Lifetime: 3 * time.Hour,
+	// thunder_patch begin
+	EvictionInterval: 12 * time.Second,
+	// thunder_patch end
 }
 
 // sanitize checks the provided user configurations and changes anything that's
@@ -256,12 +269,80 @@ type TxPool struct {
 	reorgDoneCh     chan chan struct{}
 	reorgShutdownCh chan struct{}  // requests shutdown of scheduleReorgLoop
 	wg              sync.WaitGroup // tracks loop, scheduleReorgLoop
+
+	// thunder_patch begin
+	makingThunderBlock bool
+	removedTxFeed      event.Feed
+	evictionInterval   time.Duration
+	// thunder_patch end
 }
+
+// thunder_patch begin
+/*
+ * XXX THUNDER: txpool debugging helpers
+ * add more stats as needed
+ */
+type TxPoolStatus struct {
+	PendingCount   int
+	QueueCount     int
+	TotalCount     int
+	Available      int
+	CurrentMaxGas  uint64
+	InvalidTxCount int64
+}
+
+/*
+ * XXX THUNDER: stringer for TxPoolStatus
+ */
+func (stats TxPoolStatus) String() string {
+	return fmt.Sprintf("pending: %d, queued: %d, all: %d, avail: %d, max gas: %d, invalid tx count: %d",
+		stats.PendingCount, stats.QueueCount, stats.TotalCount, stats.Available,
+		stats.CurrentMaxGas, stats.InvalidTxCount)
+}
+
+/*
+ * XXX THUNDER: get stats for debugging purposes
+ */
+func (pool *TxPool) GetStatus() TxPoolStatus {
+	pool.mu.Lock()
+	defer pool.mu.Unlock()
+
+	l := 0
+	for _, v := range pool.pending {
+		l += v.Len()
+	}
+
+	q := 0
+	for _, v := range pool.queue {
+		q += v.Len()
+	}
+
+	return TxPoolStatus{
+		PendingCount:   l,
+		QueueCount:     q,
+		TotalCount:     pool.all.Count(),
+		Available:      int(pool.config.GlobalQueue) + int(pool.config.GlobalSlots) - l - q,
+		CurrentMaxGas:  pool.currentMaxGas,
+		InvalidTxCount: invalidTxMeter.Count(),
+	}
+}
+
+/*
+ * XXX THUNDER: efficient check if pool is full
+ */
+func (pool *TxPool) IsFull() bool {
+	pool.mu.Lock()
+	defer pool.mu.Unlock()
+	return uint64(pool.all.Count()) >= pool.config.GlobalSlots+pool.config.GlobalQueue
+}
+
+// thunder_patch end
 
 type txpoolResetRequest struct {
 	oldHead, newHead *types.Header
 }
 
+// thunder_patch end
 // NewTxPool creates a new transaction pool to gather, sort and filter inbound
 // transactions from the network.
 func NewTxPool(config TxPoolConfig, chainconfig *params.ChainConfig, chain blockChain) *TxPool {
@@ -273,7 +354,7 @@ func NewTxPool(config TxPoolConfig, chainconfig *params.ChainConfig, chain block
 		config:          config,
 		chainconfig:     chainconfig,
 		chain:           chain,
-		signer:          types.LatestSigner(chainconfig),
+		signer:          types.NewLondonSigner(chainconfig.ChainID),
 		pending:         make(map[common.Address]*txList),
 		queue:           make(map[common.Address]*txList),
 		beats:           make(map[common.Address]time.Time),
@@ -285,6 +366,10 @@ func NewTxPool(config TxPoolConfig, chainconfig *params.ChainConfig, chain block
 		reorgDoneCh:     make(chan chan struct{}),
 		reorgShutdownCh: make(chan struct{}),
 		gasPrice:        new(big.Int).SetUint64(config.PriceLimit),
+
+		// thunder_patch begin
+		evictionInterval: config.EvictionInterval,
+		// thunder_patch end
 	}
 	pool.locals = newAccountSet(pool.signer)
 	for _, addr := range config.Locals {
@@ -293,6 +378,9 @@ func NewTxPool(config TxPoolConfig, chainconfig *params.ChainConfig, chain block
 	}
 	pool.priced = newTxPricedList(pool.all)
 	pool.reset(nil, chain.CurrentBlock().Header())
+
+	pendingBaseFee := misc.ThunderBaseFee(pool.chainconfig, chain.CurrentBlock().Header())
+	pool.priced.SetBaseFee(pendingBaseFee)
 
 	// Start the reorg loop early so it can handle requests generated during journal loading.
 	pool.wg.Add(1)
@@ -327,8 +415,10 @@ func (pool *TxPool) loop() {
 	var (
 		prevPending, prevQueued, prevStales int
 		// Start the stats reporting and transaction eviction tickers
-		report  = time.NewTicker(statsReportInterval)
-		evict   = time.NewTicker(evictionInterval)
+		report = time.NewTicker(statsReportInterval)
+		// thunder_patch begin
+		evict = time.NewTicker(pool.evictionInterval)
+		// thunder_patch end
 		journal = time.NewTicker(pool.config.Rejournal)
 		// Track the previous head headers for transaction reorgs
 		head = pool.chain.CurrentBlock()
@@ -342,8 +432,18 @@ func (pool *TxPool) loop() {
 		// Handle ChainHeadEvent
 		case ev := <-pool.chainHeadCh:
 			if ev.Block != nil {
+				// thunder_patch begin
+				pool.mu.Lock()
+				if pool.makingThunderBlock {
+					pool.mu.Unlock()
+					break
+				}
+				// thunder_patch end
+
 				pool.requestReset(head.Header(), ev.Block.Header())
 				head = ev.Block
+
+				pool.mu.Unlock()
 			}
 
 		// System shutdown.
@@ -380,6 +480,38 @@ func (pool *TxPool) loop() {
 					queuedEvictionMeter.Mark(int64(len(list)))
 				}
 			}
+			// thunder_patch begin
+
+			// thunder expected a transaction must be packed in Lifetime
+			var txs []*types.Transaction
+			for addr := range pool.pending {
+				if time.Since(pool.beats[addr]) > pool.config.Lifetime {
+					for _, tx := range pool.pending[addr].Flatten() {
+						pool.removeTx(tx.Hash(), true)
+						txs = append(txs, tx)
+					}
+				}
+			}
+			if len(txs) > 0 {
+				go pool.removedTxFeed.Send(EvictTxEvent{Txs: txs})
+			}
+
+			// Clean up beats here again to avoid memory leak.
+			for addr := range pool.beats {
+				if _, ok := pool.pending[addr]; ok {
+					continue
+				}
+
+				if _, ok := pool.queue[addr]; ok {
+					continue
+				}
+
+				// not in pool.pending and pool.queue
+				delete(pool.beats, addr)
+			}
+
+			// thunder_patch end
+
 			pool.mu.Unlock()
 
 		// Handle local transaction journal rotation
@@ -394,6 +526,39 @@ func (pool *TxPool) loop() {
 		}
 	}
 }
+
+// thunder_patch begin
+/*
+ * XXX THUNDER: manually reset the TxPool
+ * returns true if there are still pending
+ * transactions
+ */
+func (pool *TxPool) LockedReset(oldHead, newHead *types.Header) bool {
+	reset := &txpoolResetRequest{
+		oldHead: oldHead,
+		newHead: newHead,
+	}
+
+	pool.reqResetCh <- reset
+	<-pool.reorgDoneCh
+	return len(pool.pending) > 0
+}
+
+func (pool *TxPool) StartMakingThunderBlock() {
+	pool.mu.Lock()
+	defer pool.mu.Unlock()
+
+	pool.makingThunderBlock = true
+}
+
+func (pool *TxPool) StopMakingThunderBlock() {
+	pool.mu.Lock()
+	defer pool.mu.Unlock()
+
+	pool.makingThunderBlock = false
+}
+
+// thunder_patch end
 
 // Stop terminates the transaction pool.
 func (pool *TxPool) Stop() {
@@ -415,6 +580,13 @@ func (pool *TxPool) Stop() {
 func (pool *TxPool) SubscribeNewTxsEvent(ch chan<- NewTxsEvent) event.Subscription {
 	return pool.scope.Track(pool.txFeed.Subscribe(ch))
 }
+
+// thunder_patch begin
+func (pool *TxPool) SubscribeEvictTxsEvent(ch chan<- EvictTxEvent) event.Subscription {
+	return pool.scope.Track(pool.removedTxFeed.Subscribe(ch))
+}
+
+// thunder_patch end
 
 // GasPrice returns the current gas price enforced by the transaction pool.
 func (pool *TxPool) GasPrice() *big.Int {
@@ -581,6 +753,7 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 	if uint64(tx.Size()) > txMaxSize {
 		return ErrOversizedData
 	}
+
 	// Transactions can't be negative. This may never happen using RLP decoded
 	// transactions but may occur if you create a transaction using the RPC.
 	if tx.Value().Sign() < 0 {
@@ -610,6 +783,11 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 	if !local && tx.GasTipCapIntCmp(pool.gasPrice) < 0 {
 		return ErrUnderpriced
 	}
+	// Drop transactions under basefee
+	if tx.EffectiveGasTipIntCmp(pool.gasPrice, pool.priced.urgent.baseFee) < 0 {
+		return ErrGasPriceTooLow
+	}
+
 	// Ensure the transaction adheres to nonce ordering
 	if pool.currentState.GetNonce(from) > tx.Nonce() {
 		return ErrNonceTooLow
@@ -763,6 +941,10 @@ func (pool *TxPool) enqueueTx(hash common.Hash, tx *types.Transaction, local boo
 	if _, exist := pool.beats[from]; !exist {
 		pool.beats[from] = time.Now()
 	}
+
+	// thunder_patch begin
+	pool.beats[from] = time.Now()
+	// thunder_patch end
 	return old != nil, nil
 }
 
@@ -861,6 +1043,10 @@ func (pool *TxPool) AddRemote(tx *types.Transaction) error {
 
 // addTxs attempts to queue a batch of transactions if they are valid.
 func (pool *TxPool) addTxs(txs []*types.Transaction, local, sync bool) []error {
+	// thunder_patch begin
+	senderCacher.recover(pool.signer, txs)
+	// thunder_patch end
+
 	// Filter out known ones without obtaining the pool lock or recovering signatures
 	var (
 		errs = make([]error, len(txs))
@@ -981,19 +1167,40 @@ func (pool *TxPool) removeTx(hash common.Hash, outofbound bool) {
 	// Remove the transaction from the pending lists and reset the account nonce
 	if pending := pool.pending[addr]; pending != nil {
 		if removed, invalids := pending.Remove(tx); removed {
+			// thunder_patch begin
+			// [THUNDER-989] enqueueTx will update heart beat.
+			// Move the queue pruning to the end of this.
+
+			// thunder_patch original
 			// If no more pending transactions are left, remove the list
-			if pending.Empty() {
-				delete(pool.pending, addr)
-			}
+			// if pending.Empty() {
+			// 	delete(pool.pending, addr)
+			// }
+
+			// thunder_patch end
+
 			// Postpone any invalidated transactions
 			for _, tx := range invalids {
 				// Internal shuffle shouldn't touch the lookup set.
 				pool.enqueueTx(tx.Hash(), tx, false, false)
 			}
-			// Update the account nonce if needed
+
 			pool.pendingNonces.setIfLower(addr, tx.Nonce())
 			// Reduce the pending counter
 			pendingGauge.Dec(int64(1 + len(invalids)))
+
+			// thunder_patch begin
+			// If no more pending transactions are left, remove the list
+			if pending.Empty() {
+				delete(pool.pending, addr)
+
+				// Clean up beats only if this addr has no pending or queue tx
+				queue := pool.queue[addr]
+				if queue == nil || queue.Empty() {
+					delete(pool.beats, addr)
+				}
+			}
+			// thunder_patch end
 			return
 		}
 	}
@@ -1149,8 +1356,14 @@ func (pool *TxPool) runReorg(done chan struct{}, reset *txpoolResetRequest, dirt
 	// because of another transaction (e.g. higher gas price).
 	if reset != nil {
 		pool.demoteUnexecutables()
-		if reset.newHead != nil && pool.chainconfig.IsLondon(new(big.Int).Add(reset.newHead.Number, big.NewInt(1))) {
-			pendingBaseFee := misc.CalcBaseFee(pool.chainconfig, reset.newHead)
+		// thunder_patch begin
+		if reset.newHead != nil && pool.eip1559 {
+			pendingBaseFee := misc.ThunderBaseFee(pool.chainconfig, reset.newHead)
+			// thunder_patch original
+			// if reset.newHead != nil && pool.chainconfig.IsLondon(new(big.Int).Add(reset.newHead.Number, big.NewInt(1))) {
+			// pendingBaseFee := misc.CalcBaseFee(pool.chainconfig, reset.newHead)
+			// thunder_patch end
+
 			pool.priced.SetBaseFee(pendingBaseFee)
 		}
 	}
@@ -1266,11 +1479,15 @@ func (pool *TxPool) reset(oldHead, newHead *types.Header) {
 	senderCacher.recover(pool.signer, reinject)
 	pool.addTxsLocked(reinject, false)
 
+	thunderConfig := pool.chainconfig.Thunder
+	currentBlock := pool.chain.CurrentBlock()
+	session := thunderConfig.GetSessionFromDifficulty(currentBlock.Difficulty(), currentBlock.Number(), thunderConfig)
 	// Update all fork indicator by next pending block number.
 	next := new(big.Int).Add(newHead.Number, big.NewInt(1))
-	pool.istanbul = pool.chainconfig.IsIstanbul(next)
-	pool.eip2718 = pool.chainconfig.IsBerlin(next)
-	pool.eip1559 = pool.chainconfig.IsLondon(next)
+	rules := pool.chainconfig.Rules(next, session)
+	pool.istanbul = rules.IsIstanbul
+	pool.eip2718 = rules.IsBerlin
+	pool.eip1559 = rules.IsLondon
 }
 
 // promoteExecutables moves transactions that have become processable from the
@@ -1351,6 +1568,10 @@ func (pool *TxPool) truncatePending() {
 		return
 	}
 
+	// thunder_patch: begin
+	var removedPendingTxs []*types.Transaction
+	// thunder_patch: end
+
 	pendingBeforeCap := pending
 	// Assemble a spam order to penalize large transactors first
 	spammers := prque.New(nil)
@@ -1386,6 +1607,10 @@ func (pool *TxPool) truncatePending() {
 						// Update the account nonce to the dropped transaction
 						pool.pendingNonces.setIfLower(offenders[i], tx.Nonce())
 						log.Trace("Removed fairness-exceeding pending transaction", "hash", hash)
+
+						// thunder_patch: begin
+						removedPendingTxs = append(removedPendingTxs, tx)
+						// thunder_patch: end
 					}
 					pool.priced.Removed(len(caps))
 					pendingGauge.Dec(int64(len(caps)))
@@ -1413,6 +1638,10 @@ func (pool *TxPool) truncatePending() {
 					// Update the account nonce to the dropped transaction
 					pool.pendingNonces.setIfLower(addr, tx.Nonce())
 					log.Trace("Removed fairness-exceeding pending transaction", "hash", hash)
+
+					// thunder_patch: begin
+					removedPendingTxs = append(removedPendingTxs, tx)
+					// thunder_patch: end
 				}
 				pool.priced.Removed(len(caps))
 				pendingGauge.Dec(int64(len(caps)))
@@ -1424,6 +1653,12 @@ func (pool *TxPool) truncatePending() {
 		}
 	}
 	pendingRateLimitMeter.Mark(int64(pendingBeforeCap - pending))
+
+	// thunder_patch: begin
+	if len(removedPendingTxs) > 0 {
+		go pool.removedTxFeed.Send(EvictTxEvent{Txs: removedPendingTxs})
+	}
+	// thunder_patch: end
 }
 
 // truncateQueue drops the oldes transactions in the queue if the pool is above the global queue limit.
@@ -1479,6 +1714,9 @@ func (pool *TxPool) truncateQueue() {
 // is always explicitly triggered by SetBaseFee and it would be unnecessary and wasteful
 // to trigger a re-heap is this function
 func (pool *TxPool) demoteUnexecutables() {
+	// thunder_patch: begin
+	var removedPendingTxs []*types.Transaction
+	// thunder_patch: end
 	// Iterate over all accounts and demote any non-executable transactions
 	for addr, list := range pool.pending {
 		nonce := pool.currentState.GetNonce(addr)
@@ -1487,6 +1725,9 @@ func (pool *TxPool) demoteUnexecutables() {
 		olds := list.Forward(nonce)
 		for _, tx := range olds {
 			hash := tx.Hash()
+			// thunder_patch: begin
+			removedPendingTxs = append(removedPendingTxs, tx)
+			// thunder_patch: end
 			pool.all.Remove(hash)
 			log.Trace("Removed old pending transaction", "hash", hash)
 		}
@@ -1495,6 +1736,9 @@ func (pool *TxPool) demoteUnexecutables() {
 		for _, tx := range drops {
 			hash := tx.Hash()
 			log.Trace("Removed unpayable pending transaction", "hash", hash)
+			// thunder_patch: begin
+			removedPendingTxs = append(removedPendingTxs, tx)
+			// thunder_patch: end
 			pool.all.Remove(hash)
 		}
 		pendingNofundsMeter.Mark(int64(len(drops)))
@@ -1502,6 +1746,10 @@ func (pool *TxPool) demoteUnexecutables() {
 		for _, tx := range invalids {
 			hash := tx.Hash()
 			log.Trace("Demoting pending transaction", "hash", hash)
+
+			// thunder_patch: begin
+			removedPendingTxs = append(removedPendingTxs, tx)
+			// thunder_patch: end
 
 			// Internal shuffle shouldn't touch the lookup set.
 			pool.enqueueTx(hash, tx, false, false)
@@ -1516,6 +1764,9 @@ func (pool *TxPool) demoteUnexecutables() {
 			for _, tx := range gapped {
 				hash := tx.Hash()
 				log.Error("Demoting invalidated transaction", "hash", hash)
+				// thunder_patch: begin
+				removedPendingTxs = append(removedPendingTxs, tx)
+				// thunder_patch: end
 
 				// Internal shuffle shouldn't touch the lookup set.
 				pool.enqueueTx(hash, tx, false, false)
@@ -1527,8 +1778,26 @@ func (pool *TxPool) demoteUnexecutables() {
 		// Delete the entire pending entry if it became empty.
 		if list.Empty() {
 			delete(pool.pending, addr)
+
+			// thunder_patch begin
+			// thunder_patch original
+			// delete(pool.beats, addr)
+			// thunder_patch end
+
+			// thunder_patch: begin
+			// Clean up beats only if this addr has no pending or queue tx
+			queue := pool.queue[addr]
+			if queue == nil || queue.Empty() {
+				delete(pool.beats, addr)
+			}
+			// thunder_patch: end
 		}
 	}
+	// thunder_patch: begin
+	if len(removedPendingTxs) > 0 {
+		go pool.removedTxFeed.Send(EvictTxEvent{Txs: removedPendingTxs})
+	}
+	// thunder_patch: end
 }
 
 // addressByHeartbeat is an account address tagged with its last activity timestamp.

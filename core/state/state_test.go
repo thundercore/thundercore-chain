@@ -25,6 +25,8 @@ import (
 	"github.com/ethereum/go-ethereum/core/rawdb"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethdb"
+	"github.com/ethereum/go-ethereum/ethdb/memorydb"
+	"github.com/stretchr/testify/assert"
 )
 
 type stateTest struct {
@@ -251,3 +253,49 @@ func compareStateObjects(so0, so1 *stateObject, t *testing.T) {
 		}
 	}
 }
+
+// thunder_patch begin
+func TestStateWithHistoryDB(t *testing.T) {
+	memDB := memorydb.New()
+	db := NewDatabase(rawdb.NewDatabase(memDB))
+	// insert some data
+	state, _ := New(common.Hash{}, db, nil)
+
+	stateobjaddr0 := common.BytesToAddress([]byte("so0"))
+	stateobjaddr1 := common.BytesToAddress([]byte("so1"))
+	var storageaddr common.Hash
+
+	data0 := common.BytesToHash([]byte{17})
+	data1 := common.BytesToHash([]byte{18})
+
+	state.SetState(stateobjaddr0, storageaddr, data0)
+	state.SetState(stateobjaddr1, storageaddr, data1)
+
+	so0 := state.getStateObject(stateobjaddr0)
+	so0.SetBalance(big.NewInt(42))
+	so0.SetNonce(43)
+	so0.SetCode(crypto.Keccak256Hash([]byte{'c', 'a', 'f', 'e'}), []byte{'c', 'a', 'f', 'e'})
+	so0.suicided = false
+	so0.deleted = false
+	state.setStateObject(so0)
+
+	root, _ := state.Commit(false)
+	// force-flush into database
+	state.Database().TrieDB().Cap(0)
+
+	// new db and use the same resource.
+	// make sure the data is written in db
+	dbtmp := NewDatabase(rawdb.NewDatabase(memDB))
+	stateTmp, _ := New(root, dbtmp, nil)
+	assert.Equal(t, stateTmp.GetBalance(stateobjaddr0), big.NewInt(42))
+	assert.Equal(t, stateTmp.GetNonce(stateobjaddr0), uint64(43))
+
+	// new history db and use the same resource
+	// make sure we can retrieve the data from history db
+	historyDB := rawdb.NewHistoryDatabaseWithDBListInstance(memorydb.New(), []ethdb.KeyValueStore{memDB})
+	stateFromHistoryDB, _ := New(root, NewDatabase(historyDB), nil)
+	assert.Equal(t, stateFromHistoryDB.GetBalance(stateobjaddr0), big.NewInt(42))
+	assert.Equal(t, stateFromHistoryDB.GetNonce(stateobjaddr0), uint64(43))
+}
+
+// thunder_patch end

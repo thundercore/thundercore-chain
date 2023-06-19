@@ -29,8 +29,11 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/ethdb"
+	"github.com/ethereum/go-ethereum/ethdb/memorydb"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rlp"
+	"github.com/stretchr/testify/assert"
 	"golang.org/x/crypto/sha3"
 )
 
@@ -528,3 +531,130 @@ func TestCanonicalHashIteration(t *testing.T) {
 		}
 	}
 }
+
+// thunder_patch begin
+func TestMain(m *testing.M) {
+	params.TestChainConfig.Thunder = params.ThunderConfigForTesting(big.NewInt(0), "london")
+	os.Exit(m.Run())
+}
+
+func getBlockDataIsExist(db ethdb.Database, hash common.Hash, number uint64) (header bool, body bool, receipt bool, td bool) {
+	if blob := ReadHeaderRLP(db, hash, number); len(blob) > 0 {
+		header = true
+	}
+	if blob := ReadBodyRLP(db, hash, number); len(blob) > 0 {
+		body = true
+	}
+	if blob := ReadReceiptsRLP(db, hash, number); len(blob) > 0 {
+		receipt = true
+	}
+	if blob := ReadTdRLP(db, hash, number); len(blob) > 0 {
+		td = true
+	}
+	return header, body, receipt, td
+}
+func getBlockDataIsExistViaHas(db ethdb.Database, hash common.Hash, number uint64) (header bool, body bool, receipt bool) {
+	if HasHeader(db, hash, number) {
+		header = true
+	}
+	if HasBody(db, hash, number) {
+		body = true
+	}
+	if HasReceipts(db, hash, number) {
+		receipt = true
+	}
+	return header, body, receipt
+}
+
+func TestHistoryStorage(t *testing.T) {
+	basicDB := memorydb.New()
+	basicStore := NewDatabase(basicDB)
+	historyDB1 := memorydb.New()
+	historyDB2 := memorydb.New()
+	historyStore := &history{
+		dbList: []ethdb.KeyValueStore{historyDB1, historyDB2},
+	}
+	db := NewHistoryDatabase(basicStore, historyStore)
+	defer db.Close()
+
+	// Create a test block
+	blockA := types.NewBlockWithHeader(&types.Header{
+		Number:      big.NewInt(0),
+		Extra:       []byte("test block 0"),
+		UncleHash:   types.EmptyUncleHash,
+		TxHash:      types.EmptyRootHash,
+		ReceiptHash: types.EmptyRootHash,
+	})
+
+	blockB := types.NewBlockWithHeader(&types.Header{
+		Number:      big.NewInt(1),
+		Extra:       []byte("test block 1"),
+		UncleHash:   types.EmptyUncleHash,
+		TxHash:      types.EmptyRootHash,
+		ReceiptHash: types.EmptyRootHash,
+	})
+
+	blockC := types.NewBlockWithHeader(&types.Header{
+		Number:      big.NewInt(3),
+		Extra:       []byte("test block 2"),
+		UncleHash:   types.EmptyUncleHash,
+		TxHash:      types.EmptyRootHash,
+		ReceiptHash: types.EmptyRootHash,
+	})
+
+	// create receipt
+	receipt1 := &types.Receipt{
+		Status:            types.ReceiptStatusFailed,
+		CumulativeGasUsed: 1,
+		Logs: []*types.Log{
+			{Address: common.BytesToAddress([]byte{0x11})},
+			{Address: common.BytesToAddress([]byte{0x01, 0x11})},
+		},
+		TxHash:          types.EmptyRootHash,
+		ContractAddress: common.BytesToAddress([]byte{0x01, 0x11, 0x11}),
+		GasUsed:         111111,
+	}
+
+	receipts := []*types.Receipt{receipt1}
+
+	blockList := []*types.Block{blockA, blockB, blockC}
+
+	var cases = []struct {
+		writeDB  *memorydb.Database
+		deleteDB *memorydb.Database
+		block    *types.Block
+		expect   []bool
+	}{
+		{nil, nil, nil, []bool{false, false, false}},
+		{historyDB2, nil, blockA, []bool{true, false, false}},
+		{historyDB1, nil, blockB, []bool{true, true, false}},
+		{basicDB, nil, blockC, []bool{true, true, true}},
+		{nil, historyDB2, blockA, []bool{false, true, true}},
+		{nil, historyDB1, blockB, []bool{false, false, true}},
+		{nil, basicDB, blockC, []bool{false, false, false}},
+	}
+
+	for i, c := range cases {
+		if c.writeDB != nil {
+			WriteBlock(c.writeDB, c.block)
+			WriteReceipts(c.writeDB, c.block.Hash(), c.block.Number().Uint64(), receipts)
+			WriteTd(c.writeDB, c.block.Hash(), c.block.Number().Uint64(), big.NewInt(100))
+		}
+		if c.deleteDB != nil {
+			DeleteBlock(c.deleteDB, c.block.Hash(), c.block.Number().Uint64())
+		}
+		for blockId, block := range blockList {
+			header, body, receipt, td := getBlockDataIsExist(db, block.Hash(), block.NumberU64())
+			header2, body2, receipt2 := getBlockDataIsExistViaHas(db, block.Hash(), block.NumberU64())
+			if (header != header2) || (body != body2) || (receipt != receipt2) {
+				t.Fatalf("Case %d failed, has-data %v is not equal able to get-data %v", i, []bool{header, body, receipt}, []bool{header2, body2, receipt2})
+			}
+			assert.Equalf(t, c.expect[blockId], header, "Case %d failed, expect block status is %v, but blockid[%d] header result is wrong", i, c.expect, blockId)
+			assert.Equalf(t, c.expect[blockId], body, "Case %d failed, expect block status is %v, but blockid[%d] body result is wrong", i, c.expect, blockId)
+			assert.Equalf(t, c.expect[blockId], receipt, "Case %d failed, expect block status is %v, but blockid[%d] receipt result is wrong", i, c.expect, blockId)
+			assert.Equalf(t, c.expect[blockId], td, "Case %d failed, expect block status is %v, but blockid[%d] td result is wrong", i, c.expect, blockId)
+		}
+	}
+}
+
+// thunder_patch end

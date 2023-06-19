@@ -21,7 +21,14 @@ import (
 	"fmt"
 	"math/big"
 
+	"github.com/ethereum/go-ethereum/thunder/thunderella/config"
+	"github.com/ethereum/go-ethereum/thunder/thunderella/protocol"
+	"github.com/ethereum/go-ethereum/thunder/thunderella/utils"
+
 	"github.com/ethereum/go-ethereum/common"
+
+	"github.com/ethereum/go-ethereum/thunder/thunderella/common/chainconfig"
+
 	"golang.org/x/crypto/sha3"
 )
 
@@ -50,6 +57,12 @@ var CheckpointOracles = map[common.Hash]*CheckpointOracleConfig{
 	RinkebyGenesisHash: RinkebyCheckpointOracle,
 	GoerliGenesisHash:  GoerliCheckpointOracle,
 }
+
+var (
+	MaxUnnotarizedProposals = config.NewInt64HardforkConfig(
+		"consensus.k",
+		"Max unnotarized proposals")
+)
 
 var (
 	// MainnetChainConfig is the chain parameters to run a node on the main network.
@@ -225,17 +238,26 @@ var (
 	//
 	// This configuration is intentionally not using keyed fields to force anyone
 	// adding flags to the config to also have to set these fields.
-	AllEthashProtocolChanges = &ChainConfig{big.NewInt(1337), big.NewInt(0), nil, false, big.NewInt(0), common.Hash{}, big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), nil, new(EthashConfig), nil}
+	// thunder_patch begin
+	AllEthashProtocolChanges = &ChainConfig{big.NewInt(1337), big.NewInt(0), nil, false, big.NewInt(0), common.Hash{}, big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), nil, new(EthashConfig), nil, nil}
+	// thunder_patch origin
+	// AllEthashProtocolChanges = &ChainConfig{big.NewInt(1337), big.NewInt(0), nil, false, big.NewInt(0), common.Hash{}, big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), nil, new(EthashConfig), nil}
+	// thunder_patch end
 
 	// AllCliqueProtocolChanges contains every protocol change (EIPs) introduced
 	// and accepted by the Ethereum core developers into the Clique consensus.
 	//
 	// This configuration is intentionally not using keyed fields to force anyone
 	// adding flags to the config to also have to set these fields.
-	AllCliqueProtocolChanges = &ChainConfig{big.NewInt(1337), big.NewInt(0), nil, false, big.NewInt(0), common.Hash{}, big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), nil, nil, &CliqueConfig{Period: 0, Epoch: 30000}}
+	// thunder_patch begin
+	AllCliqueProtocolChanges = &ChainConfig{big.NewInt(1337), big.NewInt(0), nil, false, big.NewInt(0), common.Hash{}, big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), nil, nil, &CliqueConfig{Period: 0, Epoch: 30000}, nil}
+	TestChainConfig          = &ChainConfig{big.NewInt(1), big.NewInt(0), nil, false, big.NewInt(0), common.Hash{}, big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), nil, new(EthashConfig), nil, nil}
+	// thunder_patch origin
+	// AllCliqueProtocolChanges = &ChainConfig{big.NewInt(1337), big.NewInt(0), nil, false, big.NewInt(0), common.Hash{}, big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), nil, nil, &CliqueConfig{Period: 0, Epoch: 30000}}
+	// TestChainConfig = &ChainConfig{big.NewInt(1), big.NewInt(0), nil, false, big.NewInt(0), common.Hash{}, big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), nil, new(EthashConfig), nil}
+	// thunder_patch end
 
-	TestChainConfig = &ChainConfig{big.NewInt(1), big.NewInt(0), nil, false, big.NewInt(0), common.Hash{}, big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0), nil, new(EthashConfig), nil}
-	TestRules       = TestChainConfig.Rules(new(big.Int))
+	TestRules = TestChainConfig.Rules(new(big.Int), 0)
 )
 
 // TrustedCheckpoint represents a set of post-processed trie roots (CHT and
@@ -247,6 +269,36 @@ type TrustedCheckpoint struct {
 	SectionHead  common.Hash `json:"sectionHead"`
 	CHTRoot      common.Hash `json:"chtRoot"`
 	BloomRoot    common.Hash `json:"bloomRoot"`
+}
+
+/*
+ * ThunderChainConfig returns the chain parameters to run a node on Thunder network.
+ *
+ * Since ThunderChainConfig uses chain ID from Thunder configuration, ThunderChainConfig must be
+ * called after Thunder configuration is initialized.
+ */
+func ThunderChainConfig() *ChainConfig {
+	alwaysUseFork := big.NewInt(0)
+	return &ChainConfig{
+		ChainID:             big.NewInt(chainconfig.ChainID()),
+		HomesteadBlock:      alwaysUseFork,
+		DAOForkBlock:        nil,
+		DAOForkSupport:      true,
+		EIP150Block:         alwaysUseFork,
+		EIP150Hash:          common.Hash{},
+		EIP155Block:         alwaysUseFork,
+		EIP158Block:         alwaysUseFork,
+		ByzantiumBlock:      alwaysUseFork,
+		ConstantinopleBlock: nil,
+		PetersburgBlock:     nil,
+		IstanbulBlock:       nil,
+		MuirGlacierBlock:    nil,
+		BerlinBlock:         nil,
+		LondonBlock:         nil,
+		Ethash:              nil,
+		Clique:              nil,
+		Thunder:             &ThunderConfig{},
+	}
 }
 
 // HashEqual returns an indicator comparing the itself hash with given one.
@@ -319,6 +371,10 @@ type ChainConfig struct {
 	// Various consensus engines
 	Ethash *EthashConfig `json:"ethash,omitempty"`
 	Clique *CliqueConfig `json:"clique,omitempty"`
+
+	// thunder_patch begin
+	Thunder *ThunderConfig `json:"thunder,omitempty"`
+	// thunder_patch end
 }
 
 // EthashConfig is the consensus engine configs for proof-of-work based sealing.
@@ -339,6 +395,156 @@ type CliqueConfig struct {
 func (c *CliqueConfig) String() string {
 	return "clique"
 }
+
+// thunder_patch begin
+type GetSessionFromDifficultyFunc func(*big.Int, *big.Int, *ThunderConfig) uint32
+type GetBlockSnFromDifficultyFunc func(*big.Int, *big.Int, *ThunderConfig) (uint32, uint32, uint32)
+type Evm interface{}
+type IsInConsensusTxFunc func(evm Evm) bool
+type BidVerificationEnabledFunc func() bool
+
+func ThunderConfigForTesting(palaBlock *big.Int, evmVersion string) *ThunderConfig {
+	utils.RunningTest = true
+	config.InitDefaultHardforkConfigForTesting()
+	var electionOffsetForTest = config.NewInt64HardforkConfig("thunder.test.unused", "")
+	var proposerListNameForTest = config.NewStringHardforkConfig("thunder.test.unused2", "")
+	var maxCodeSizeForTest = config.NewInt64HardforkConfig("thunder.test.unused3", "")
+	var vaultGasUnlimitedForTest = config.NewBoolHardforkConfig("thunder.test.unused4", "")
+	var gasTableForTest = config.NewStringHardforkConfig("thunder.test.unused5", "")
+	var evmHardforkVersion = config.NewStringHardforkConfig("blockchain.unused.value4", "")
+	var rewardSchemeForTest = config.NewStringHardforkConfig("blockchain.unused.value5", "")
+	var rngVersionForTest = config.NewStringHardforkConfig("thunder.test.unused6", "")
+	var isConsensusInfoInHeader = config.NewBoolHardforkConfig("thunder.test.unused9", "")
+	var baseFeeForTest = config.NewBigIntHardforkConfig("thunder.test.unused10", "")
+	var tokenInflationForTest = config.NewBigIntHardforkConfig("thunder.test.unused11", "")
+	var committeeRewardRatioForTest = config.NewInt64HardforkConfig("thunder.test.unused12", "")
+	var tpcRevertDelegateCall = config.NewBoolHardforkConfig("hardfork.tpcRevertdelegatecall", "")
+	var blockGasLimit = int64(40000000)
+
+	stopBlockOffset := big.NewInt(25)
+
+	electionOffsetForTest.SetTestValueAtSession(stopBlockOffset.Int64(), 0)
+	maxCodeSizeForTest.SetTestValueAtSession(102400, 0)
+	rewardSchemeForTest.SetTestValueAtSession("pala-r2.1", 0)
+	vaultGasUnlimitedForTest.SetTestValueAtSession(true, 0)
+	rngVersionForTest.SetTestValueAtSession("v3", 0)
+	evmHardforkVersion.SetTestValueAtSession(evmVersion, 0)
+	gasTableForTest.SetTestValueAtSession("pala-r2.1", 0)
+	isConsensusInfoInHeader.SetTestValueAtSession(true, 0)
+	protocol.BlockGasLimit.SetTestValueAt(blockGasLimit, 0)
+	MaxUnnotarizedProposals.SetTestValueAtSession(1, 0)
+	baseFeeForTest.SetTestValueAtSession(big.NewInt(GWei), 0)
+	tokenInflationForTest.SetTestValueAtSession(big.NewInt(int64(Ether)), 0)
+	committeeRewardRatioForTest.SetTestValueAtSession(50, 0)
+	tpcRevertDelegateCall.SetTestValueAtSession(true, 0)
+
+	return &ThunderConfig{
+		PalaBlock:        palaBlock,
+		VerifyBidSession: 0,
+		GetSessionFromDifficulty: func(*big.Int, *big.Int, *ThunderConfig) uint32 {
+			return 0
+		},
+		GetBlockSnFromDifficulty: func(*big.Int, *big.Int, *ThunderConfig) (uint32, uint32, uint32) {
+			return 0, 0, 0
+		},
+		IsInConsensusTx: func(evm Evm) bool {
+			return true
+		},
+		BidVerificationEnabled: func() bool {
+			return true
+		},
+		ElectionStopBlockSessionOffset: electionOffsetForTest,
+		ProposerListName:               proposerListNameForTest,
+		MaxCodeSize:                    maxCodeSizeForTest,
+		RewardScheme:                   rewardSchemeForTest,
+		VaultGasUnlimited:              vaultGasUnlimitedForTest,
+		GasTable:                       gasTableForTest,
+		EVMHardforkVersion:             evmHardforkVersion,
+		IsConsensusInfoInHeader:        isConsensusInfoInHeader,
+		RNGVersion:                     rngVersionForTest,
+		BaseFee:                        baseFeeForTest,
+		TokenInflation:                 tokenInflationForTest,
+		CommitteeRewardRatio:           committeeRewardRatioForTest,
+		TPCRevertDelegateCall:          tpcRevertDelegateCall,
+	}
+}
+
+// ThunderConfig is the consensus engine config.
+type ThunderConfig struct {
+	PalaBlock                      *big.Int                     `json:"-"` // Note that we get our hardfork config from hardfork.yaml instead of genesis.json
+	VerifyBidSession               uint32                       `json:"-"`
+	GetSessionFromDifficulty       GetSessionFromDifficultyFunc `json:"-"` // GetSessionFromDifficulty is a functor, ignore from json parser
+	GetBlockSnFromDifficulty       GetBlockSnFromDifficultyFunc `json:"-"` // GetBlockSnFromDifficulty is a functor, ignore from json parser
+	IsInConsensusTx                IsInConsensusTxFunc          `json:"-"` // Only calls in evm
+	BidVerificationEnabled         BidVerificationEnabledFunc   `json:"-"` // Only calls in evm
+	ElectionStopBlockSessionOffset *config.Int64HardforkConfig  `json:"-"`
+	ProposerListName               *config.StringHardforkConfig `json:"-"`
+	MaxCodeSize                    *config.Int64HardforkConfig  `json:"-"`
+	RewardScheme                   *config.StringHardforkConfig `json:"-"`
+	VaultGasUnlimited              *config.BoolHardforkConfig   `json:"-"`
+	GasTable                       *config.StringHardforkConfig `json:"-"`
+	EVMHardforkVersion             *config.StringHardforkConfig `json:"-"`
+	IsConsensusInfoInHeader        *config.BoolHardforkConfig   `json:"-"`
+	RNGVersion                     *config.StringHardforkConfig `json:"-"`
+	BaseFee                        *config.BigIntHardforkConfig `json:"-"`
+	TokenInflation                 *config.BigIntHardforkConfig `json:"-"`
+	CommitteeRewardRatio           *config.Int64HardforkConfig  `json:"-"`
+	TPCRevertDelegateCall          *config.BoolHardforkConfig   `json:"-"`
+}
+
+// String implements the stringer interface, returning the consensus engine details.
+func (c *ThunderConfig) String() string {
+	return "thunder"
+}
+
+func (c *ThunderConfig) IsPala(num *big.Int) bool {
+	return isForked(c.PalaBlock, num)
+}
+
+func (c *ThunderConfig) ShouldVerifyBid(session uint32) bool {
+	return isForkedBySession(c.VerifyBidSession, session)
+}
+
+func (c *ThunderConfig) IsPala2P5GasTable(session uint32) bool {
+	return c.GasTable.GetValueAtSession(int64(session)) == "pala-r2.1"
+}
+
+// IsConstantinople returns whether num is either equal to the Constantinople fork block or greater.
+func (c *ThunderConfig) IsConstantinople(session uint32) bool {
+	return c.EVMHardforkVersion != nil &&
+		(c.EVMHardforkVersion.GetValueAtSession(int64(session)) == "constantinople" ||
+			c.EVMHardforkVersion.GetValueAtSession(int64(session)) == "petersburg" ||
+			c.EVMHardforkVersion.GetValueAtSession(int64(session)) == "istanbul" ||
+			c.EVMHardforkVersion.GetValueAtSession(int64(session)) == "berlin" ||
+			c.EVMHardforkVersion.GetValueAtSession(int64(session)) == "london")
+}
+
+func (c *ThunderConfig) IsPetersburg(session uint32) bool {
+	return c.EVMHardforkVersion != nil &&
+		(c.EVMHardforkVersion.GetValueAtSession(int64(session)) == "petersburg" ||
+			c.EVMHardforkVersion.GetValueAtSession(int64(session)) == "istanbul" ||
+			c.EVMHardforkVersion.GetValueAtSession(int64(session)) == "berlin" ||
+			c.EVMHardforkVersion.GetValueAtSession(int64(session)) == "london")
+}
+
+func (c *ThunderConfig) IsIstanbul(session uint32) bool {
+	return c.EVMHardforkVersion != nil &&
+		(c.EVMHardforkVersion.GetValueAtSession(int64(session)) == "istanbul" ||
+			c.EVMHardforkVersion.GetValueAtSession(int64(session)) == "berlin" ||
+			c.EVMHardforkVersion.GetValueAtSession(int64(session)) == "london")
+}
+
+func (c *ThunderConfig) IsBerlin(session uint32) bool {
+	return c.EVMHardforkVersion != nil &&
+		(c.EVMHardforkVersion.GetValueAtSession(int64(session)) == "berlin" ||
+			c.EVMHardforkVersion.GetValueAtSession(int64(session)) == "london")
+}
+
+func (c *ThunderConfig) IsLondon(session uint32) bool {
+	return c.EVMHardforkVersion != nil && c.EVMHardforkVersion.GetValueAtSession(int64(session)) == "london"
+}
+
+// thunder_patch end
 
 // String implements the fmt.Stringer interface.
 func (c *ChainConfig) String() string {
@@ -436,6 +642,13 @@ func (c *ChainConfig) IsLondon(num *big.Int) bool {
 func (c *ChainConfig) IsCatalyst(num *big.Int) bool {
 	return isForked(c.CatalystBlock, num)
 }
+
+// thunder_patch begin
+func (c *ChainConfig) IsPala2P5GasTable(session uint32) bool {
+	return c.Thunder.IsPala2P5GasTable(session)
+}
+
+// thunder_patch end
 
 // CheckCompatible checks whether scheduled fork transitions have been imported
 // with a mismatching chain configuration.
@@ -563,6 +776,13 @@ func isForked(s, head *big.Int) bool {
 	return s.Cmp(head) <= 0
 }
 
+// thunder_patch begin
+func isForkedBySession(session, head uint32) bool {
+	return session <= head
+}
+
+// thunder_patch end
+
 func configNumEqual(x, y *big.Int) bool {
 	if x == nil {
 		return y == nil
@@ -617,7 +837,12 @@ type Rules struct {
 }
 
 // Rules ensures c's ChainID is not nil.
-func (c *ChainConfig) Rules(num *big.Int) Rules {
+// thunder_patch begin
+func (c *ChainConfig) Rules(num *big.Int, session uint32) Rules {
+	// thunder_patch original
+	// func (c *ChainConfig) Rules(num *big.Int) Rules {
+	// thunder_patch end
+
 	chainID := c.ChainID
 	if chainID == nil {
 		chainID = new(big.Int)
@@ -629,11 +854,11 @@ func (c *ChainConfig) Rules(num *big.Int) Rules {
 		IsEIP155:         c.IsEIP155(num),
 		IsEIP158:         c.IsEIP158(num),
 		IsByzantium:      c.IsByzantium(num),
-		IsConstantinople: c.IsConstantinople(num),
-		IsPetersburg:     c.IsPetersburg(num),
-		IsIstanbul:       c.IsIstanbul(num),
-		IsBerlin:         c.IsBerlin(num),
-		IsLondon:         c.IsLondon(num),
+		IsConstantinople: c.IsConstantinople(num) || c.Thunder.IsConstantinople(session),
+		IsPetersburg:     c.IsPetersburg(num) || c.Thunder.IsPetersburg(session),
+		IsIstanbul:       c.IsIstanbul(num) || c.Thunder.IsIstanbul(session),
+		IsBerlin:         c.IsBerlin(num) || c.Thunder.IsBerlin(session),
+		IsLondon:         c.IsLondon(num) || c.Thunder.IsLondon(session),
 		IsCatalyst:       c.IsCatalyst(num),
 	}
 }

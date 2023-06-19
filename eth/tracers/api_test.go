@@ -24,15 +24,17 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"os"
 	"reflect"
 	"sort"
 	"testing"
 	"time"
 
+	"github.com/ethereum/go-ethereum/thunder/thunderella/consensus/thunder"
+
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/consensus"
-	"github.com/ethereum/go-ethereum/consensus/ethash"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/rawdb"
 	"github.com/ethereum/go-ethereum/core/state"
@@ -59,10 +61,18 @@ type testBackend struct {
 }
 
 func newTestBackend(t *testing.T, n int, gspec *core.Genesis, generator func(i int, b *core.BlockGen)) *testBackend {
+	// thunder_patch begin
+	engine := thunder.New(params.TestChainConfig.Thunder)
+	engine.SetEngineClient(&thunder.FakeEngineClient{})
+	// thunder_patch end
 	backend := &testBackend{
 		chainConfig: params.TestChainConfig,
-		engine:      ethash.NewFaker(),
-		chaindb:     rawdb.NewMemoryDatabase(),
+		// thunder_patch begin
+		engine: engine,
+		// thunder_patch orininal
+		// engine:      ethash.NewFaker(),
+		// thunder_patch end
+		chaindb: rawdb.NewMemoryDatabase(),
 	}
 	// Generate blocks for testing
 	gspec.Config = backend.chainConfig
@@ -88,6 +98,13 @@ func newTestBackend(t *testing.T, n int, gspec *core.Genesis, generator func(i i
 	if n, err := chain.InsertChain(blocks); err != nil {
 		t.Fatalf("block %d: failed to insert into chain: %v", n, err)
 	}
+	// thunder_patch begin
+	for _, block := range blocks {
+		if err := chain.WriteKnownBlock(block); err != nil {
+			t.Fatalf("block %d: failed to insert into chain: %v", n, err)
+		}
+	}
+	// thunder_patch end
 	backend.chain = chain
 	return backend
 }
@@ -159,7 +176,8 @@ func (b *testBackend) StateAtTransaction(ctx context.Context, block *types.Block
 		return nil, vm.BlockContext{}, statedb, nil
 	}
 	// Recompute transactions up to the target index.
-	signer := types.MakeSigner(b.chainConfig, block.Number())
+	// thunder_patch begin
+	signer := types.MakeSigner(b.chainConfig, block.Number(), 0)
 	for idx, tx := range block.Transactions() {
 		msg, _ := tx.AsMessage(signer, block.BaseFee())
 		txContext := core.NewEVMTxContext(msg)
@@ -406,14 +424,19 @@ func TestOverriddenTraceCall(t *testing.T) {
 			},
 			expectErr: nil,
 			expect: &callTrace{
-				Type:    "CALL",
-				From:    randomAccounts[0].addr,
-				To:      randomAccounts[2].addr,
-				Input:   hexutil.Bytes(common.Hex2Bytes("8381f58a")),
-				Output:  hexutil.Bytes(common.BigToHash(big.NewInt(123)).Bytes()),
-				Gas:     newRPCUint64(24978936),
-				GasUsed: newRPCUint64(2283),
-				Value:   (*hexutil.Big)(big.NewInt(0)),
+				Type:   "CALL",
+				From:   randomAccounts[0].addr,
+				To:     randomAccounts[2].addr,
+				Input:  hexutil.Bytes(common.Hex2Bytes("8381f58a")),
+				Output: hexutil.Bytes(common.BigToHash(big.NewInt(123)).Bytes()),
+				Gas:    newRPCUint64(24978936),
+				// thunder_patch begin
+				// Thunder bump CALL gas to 14000
+				GasUsed: newRPCUint64(18283),
+				// thunder_patch original
+				// GasUsed: newRPCUint64(2283),
+				// thunder_patch end
+				Value: (*hexutil.Big)(big.NewInt(0)),
 			},
 		},
 	}
@@ -455,7 +478,8 @@ func TestTraceTransaction(t *testing.T) {
 	genesis := &core.Genesis{Alloc: core.GenesisAlloc{
 		accounts[0].addr: {Balance: big.NewInt(params.Ether)},
 		accounts[1].addr: {Balance: big.NewInt(params.Ether)},
-	}}
+	},
+	}
 	target := common.Hash{}
 	signer := types.HomesteadSigner{}
 	api := NewAPI(newTestBackend(t, 1, genesis, func(i int, b *core.BlockGen) {
@@ -637,3 +661,14 @@ func newStates(keys []common.Hash, vals []common.Hash) *map[common.Hash]common.H
 	}
 	return &m
 }
+
+// thunder_patch begin
+func TestMain(m *testing.M) {
+	thunderConfig = params.ThunderConfigForTesting(big.NewInt(0), "london")
+	params.TestChainConfig.Thunder = thunderConfig
+	params.AllEthashProtocolChanges.Thunder = thunderConfig
+	params.MainnetChainConfig.Thunder = thunderConfig
+	os.Exit(m.Run())
+}
+
+// thunder_patch end

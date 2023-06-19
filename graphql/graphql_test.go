@@ -25,6 +25,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ethereum/go-ethereum/thunder/thunderella/common/chainconfig"
+	"github.com/ethereum/go-ethereum/thunder/thunderella/consensus/thunder"
+
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/consensus/ethash"
 	"github.com/ethereum/go-ethereum/core"
@@ -78,11 +81,18 @@ func TestGraphQLBlockSerialization(t *testing.T) {
 		},
 		{ // Should return info about latest block
 			body: `{"query": "{block{number,gasUsed,gasLimit}}","variables": null}`,
-			want: `{"data":{"block":{"number":10,"gasUsed":0,"gasLimit":11500000}}}`,
+			// thunder_patch begin
+			// thunder set block gas limit by `protocol.BlockGasLimit` config
+			want: `{"data":{"block":{"number":10,"gasUsed":0,"gasLimit":40000000}}}`,
+			// thunder_patch original
+			// want: `{"data":{"block":{"number":10,"gasUsed":0,"gasLimit":11500000}}}`,
+			// thunder_patch end
 			code: 200,
 		},
 		{
 			body: `{"query": "{block(number:0){number,gasUsed,gasLimit}}","variables": null}`,
+			// [Thunder] Although we set `protocol.BlockGasLimit=40000000` at block 0,
+			// but genesis block doesn't made by `makeHeader`.
 			want: `{"data":{"block":{"number":0,"gasUsed":0,"gasLimit":11500000}}}`,
 			code: 200,
 		},
@@ -98,6 +108,8 @@ func TestGraphQLBlockSerialization(t *testing.T) {
 		},
 		{
 			body: `{"query": "{block(number:\"0\"){number,gasUsed,gasLimit}}","variables": null}`,
+			// [Thunder] Although we set `protocol.BlockGasLimit=40000000` at block 0,
+			// but genesis block doesn't made by `makeHeader`.
 			want: `{"data":{"block":{"number":0,"gasUsed":0,"gasLimit":11500000}}}`,
 			code: 200,
 		},
@@ -252,18 +264,46 @@ func createGQLService(t *testing.T, stack *node.Node) {
 		TrieDirtyCache:          5,
 		TrieTimeout:             60 * time.Minute,
 		SnapshotCache:           5,
+		// thunder_patch begin
+		TxPool: core.DefaultTxPoolConfig,
+		// thunder_patch end
 	}
+	// thunder_patch begin
+	thunderConfig := params.ThunderConfigForTesting(big.NewInt(0), "london")
+	ethConf.Genesis.Config.Thunder = thunderConfig
+	// thunder_patch end
+
 	ethBackend, err := eth.New(stack, ethConf)
 	if err != nil {
 		t.Fatalf("could not create eth backend: %v", err)
 	}
+
+	// thunder_patch begin
+	chainConfig := params.AllEthashProtocolChanges
+	chainConfig.Thunder = thunderConfig
+	ethBackend.Engine().(*thunder.Thunder).SetEngineClient(&thunder.FakeEngineClient{})
+	// thunder_patch end
+
 	// Create some blocks and import them
-	chain, _ := core.GenerateChain(params.AllEthashProtocolChanges, ethBackend.BlockChain().Genesis(),
-		ethash.NewFaker(), ethBackend.ChainDb(), 10, func(i int, gen *core.BlockGen) {})
+	// thunder_patch begin
+	chain, _ := core.GenerateChain(chainConfig, ethBackend.BlockChain().Genesis(),
+		ethBackend.Engine(), ethBackend.ChainDb(), 10, func(i int, gen *core.BlockGen) {})
+	// thunder_patch original
+	// chain, _ := core.GenerateChain(params.AllEthashProtocolChanges, ethBackend.BlockChain().Genesis(),
+	//     ethash.NewFaker(), ethBackend.ChainDb(), 10, func(i int, gen *core.BlockGen) {})
+	// thunder_patch end
 	_, err = ethBackend.BlockChain().InsertChain(chain)
 	if err != nil {
 		t.Fatalf("could not create import blocks: %v", err)
 	}
+	// thunder_patch begin
+	for _, block := range chain {
+		if err = ethBackend.BlockChain().WriteKnownBlock(block); err != nil {
+			t.Fatalf("failed to write known block: %v", err)
+		}
+	}
+	// thunder_patch end
+
 	// create gql service
 	err = New(stack, ethBackend.APIBackend, []string{}, []string{})
 	if err != nil {
@@ -277,10 +317,19 @@ func createGQLServiceWithTransactions(t *testing.T, stack *node.Node) {
 	address := crypto.PubkeyToAddress(key.PublicKey)
 	funds := big.NewInt(1000000000000000)
 	dad := common.HexToAddress("0x0000000000000000000000000000000000000dad")
+	// thunder_patch begin
+	chainConfig := params.AllEthashProtocolChanges
+	thunderConfig := params.ThunderConfigForTesting(big.NewInt(0), "london")
+	chainConfig.Thunder = thunderConfig
+	// thunder_patch end
 
 	ethConf := &ethconfig.Config{
 		Genesis: &core.Genesis{
-			Config:     params.AllEthashProtocolChanges,
+			// thunder_patch begin
+			Config: chainConfig,
+			// thunder_patch original
+			// Config:     params.AllEthashProtocolChanges,
+			// thunder_patch end
 			GasLimit:   11500000,
 			Difficulty: big.NewInt(1048576),
 			Alloc: core.GenesisAlloc{
@@ -309,12 +358,20 @@ func createGQLServiceWithTransactions(t *testing.T, stack *node.Node) {
 		TrieDirtyCache:          5,
 		TrieTimeout:             60 * time.Minute,
 		SnapshotCache:           5,
+		// thunder_patch begin
+		TxPool: core.DefaultTxPoolConfig,
+		// thunder_patch end
 	}
 
 	ethBackend, err := eth.New(stack, ethConf)
 	if err != nil {
 		t.Fatalf("could not create eth backend: %v", err)
 	}
+	// thunder_patch begin
+	client := &thunder.FakeEngineClient{}
+	ethBackend.Engine().(*thunder.Thunder).SetEngineClient(client)
+	// thunder_patch end
+
 	signer := types.LatestSigner(ethConf.Genesis.Config)
 
 	legacyTx, _ := types.SignNewTx(key, signer, &types.LegacyTx{
@@ -338,9 +395,15 @@ func createGQLServiceWithTransactions(t *testing.T, stack *node.Node) {
 	})
 
 	// Create some blocks and import them
-	chain, _ := core.GenerateChain(params.AllEthashProtocolChanges, ethBackend.BlockChain().Genesis(),
-		ethash.NewFaker(), ethBackend.ChainDb(), 1, func(i int, b *core.BlockGen) {
-			b.SetCoinbase(common.Address{1})
+	chain, _ := core.GenerateChain(ethBackend.BlockChain().Config(), ethBackend.BlockChain().Genesis(),
+		ethBackend.Engine(), ethBackend.ChainDb(), 1, func(i int, b *core.BlockGen) {
+			// thunder_patch begin
+			// We changed header.Coinbase value in `setHeaderUnusedFieldsToDefault`
+			// which will be called in `FinalizeAndAssemble`.
+			b.SetCoinbase(chainconfig.TestnetTxnFeeAddr)
+			// thunder_patch original
+			// b.SetCoinbase(common.Address{1})
+			// thunder_patch end
 			b.AddTx(legacyTx)
 			b.AddTx(envelopTx)
 		})
@@ -349,6 +412,14 @@ func createGQLServiceWithTransactions(t *testing.T, stack *node.Node) {
 	if err != nil {
 		t.Fatalf("could not create import blocks: %v", err)
 	}
+	// thunder_patch begin
+	for _, block := range chain {
+		if err = ethBackend.BlockChain().WriteKnownBlock(block); err != nil {
+			t.Fatalf("failed to write known block: %v", err)
+		}
+	}
+	// thunder_patch end
+
 	// create gql service
 	err = New(stack, ethBackend.APIBackend, []string{}, []string{})
 	if err != nil {

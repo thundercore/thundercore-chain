@@ -18,13 +18,23 @@ package runtime_test
 
 import (
 	"fmt"
+	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/vm/runtime"
+	"github.com/ethereum/go-ethereum/params"
 )
 
 func ExampleExecute() {
-	ret, _, err := runtime.Execute(common.Hex2Bytes("6060604052600a8060106000396000f360606040526008565b00"), nil, nil)
+	// thunder_patch begin
+	cfg := new(runtime.Config)
+	cfg.ChainConfig = &params.ChainConfig{
+		Thunder: params.ThunderConfigForTesting(big.NewInt(0), "london"),
+	}
+	ret, _, err := runtime.Execute(common.Hex2Bytes("6060604052600a8060106000396000f360606040526008565b00"), nil, cfg)
+	// thunder_patch original
+	// ret, _, err := runtime.Execute(common.Hex2Bytes("6060604052600a8060106000396000f360606040526008565b00"), nil, nil)
+	// thunder_patch end
 	if err != nil {
 		fmt.Println(err)
 	}

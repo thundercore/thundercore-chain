@@ -24,6 +24,7 @@ import (
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/rawdb"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethdb"
 	"github.com/ethereum/go-ethereum/ethdb/memorydb"
@@ -490,7 +491,11 @@ func (l *loggingDb) Close() error {
 func makeLargeTestTrie() (*Database, *SecureTrie, *loggingDb) {
 	// Create an empty trie
 	logDb := &loggingDb{0, memorydb.New()}
-	triedb := NewDatabase(logDb)
+	// thunder_patch begin
+	triedb := NewDatabase(rawdb.NewDatabase(logDb))
+	// thunder_patch original
+	// triedb := NewDatabase(logDb)
+	// thunder_patch end
 	trie, _ := NewSecure(common.Hash{}, triedb)
 
 	// Fill it with some arbitrary data

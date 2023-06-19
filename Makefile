@@ -2,7 +2,7 @@
 # with Go source code. If you know what GOPATH is then you probably
 # don't need to bother with make.
 
-.PHONY: geth android ios geth-cross evm all test clean
+.PHONY: geth android ios geth-cross evm all test clean pala thunder
 .PHONY: geth-linux geth-linux-386 geth-linux-amd64 geth-linux-mips64 geth-linux-mips64le
 .PHONY: geth-linux-arm geth-linux-arm-5 geth-linux-arm-6 geth-linux-arm-7 geth-linux-arm64
 .PHONY: geth-darwin geth-darwin-386 geth-darwin-amd64
@@ -10,7 +10,7 @@
 
 GOBIN = ./build/bin
 GO ?= latest
-GORUN = env GO111MODULE=on go run
+GORUN = env GO111MODULE=auto go run
 
 geth:
 	$(GORUN) build/ci.go install ./cmd/geth
@@ -19,6 +19,34 @@ geth:
 
 all:
 	$(GORUN) build/ci.go install
+
+pala:
+	$(GORUN) build/ci.go install ./cmd/pala
+	@echo "Done building."
+
+local-chain:
+	python3 scripts/chain.py -h
+
+thunder: pala
+	$(GORUN) build/ci.go install ./cmd/tb
+	$(GORUN) build/ci.go install ./cmd/ipc
+	$(GORUN) build/ci.go install ./cmd/addrtool
+	$(GORUN) build/ci.go install ./cmd/fntool
+	$(GORUN) build/ci.go install ./cmd/keyscript
+	$(GORUN) build/ci.go install ./cmd/thundertool
+	$(GORUN) build/ci.go install ./cmd/batchtransfer
+	$(GORUN) build/ci.go install ./cmd/benchmark
+	$(GORUN) build/ci.go install ./cmd/db-reader
+	$(GORUN) build/ci.go install ./cmd/evm
+	$(GORUN) build/ci.go install ./cmd/futureblock
+	$(GORUN) build/ci.go install ./cmd/generategenesis
+	$(GORUN) build/ci.go install ./cmd/key-address
+	$(GORUN) build/ci.go install ./cmd/new-account
+	$(GORUN) build/ci.go install ./cmd/pubkey-id
+	$(GORUN) build/ci.go install ./cmd/replace-committee
+	$(GORUN) build/ci.go install ./cmd/replay-tx
+	$(GORUN) build/ci.go install ./cmd/snapshot
+	@echo "Done building"
 
 android:
 	$(GORUN) build/ci.go aar --local
@@ -33,7 +61,14 @@ ios:
 	@echo "Import \"$(GOBIN)/Geth.framework\" to use the library."
 
 test: all
-	$(GORUN) build/ci.go test
+	./scripts/test/test-prepare
+	./scripts/test/pala-dev -c
+	$(GORUN) build/ci.go test -v -tags "skipe2etest"
+
+e2etest: all
+	./scripts/test/test-prepare
+	./scripts/test/pala-dev -c
+	$(GORUN) build/ci.go test -v github.com/ethereum/go-ethereum/thunder/test/...
 
 lint: ## Run linters.
 	$(GORUN) build/ci.go lint

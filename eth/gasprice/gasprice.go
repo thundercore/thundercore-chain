@@ -56,6 +56,9 @@ type OracleBackend interface {
 	GetReceipts(ctx context.Context, hash common.Hash) (types.Receipts, error)
 	PendingBlockAndReceipts() (*types.Block, types.Receipts)
 	ChainConfig() *params.ChainConfig
+	// thunder_patch begin
+	GetClearingGasPrice() *big.Int
+	// thunder_patch end
 	SubscribeChainHeadEvent(ch chan<- core.ChainHeadEvent) event.Subscription
 }
 
@@ -166,7 +169,12 @@ func (oracle *Oracle) SuggestTipCap(ctx context.Context) (*big.Int, error) {
 		results   []*big.Int
 	)
 	for sent < oracle.checkBlocks && number > 0 {
-		go oracle.getBlockValues(ctx, types.MakeSigner(oracle.backend.ChainConfig(), big.NewInt(int64(number))), number, sampleNumber, oracle.ignorePrice, result, quit)
+		// thunder_patch begin
+		session := oracle.backend.ChainConfig().Thunder.GetSessionFromDifficulty(head.Difficulty, head.Number, oracle.backend.ChainConfig().Thunder)
+		go oracle.getBlockValues(ctx, types.MakeSigner(oracle.backend.ChainConfig(), big.NewInt(int64(number)), session), number, sampleNumber, oracle.ignorePrice, result, quit)
+		// thunder_patch original
+		// go oracle.getBlockValues(ctx, types.MakeSigner(oracle.backend.ChainConfig(), big.NewInt(int64(number))), number, sampleNumber, oracle.ignorePrice, result, quit)
+		// thunder_patch end
 		sent++
 		exp++
 		number--
@@ -189,7 +197,12 @@ func (oracle *Oracle) SuggestTipCap(ctx context.Context) (*big.Int, error) {
 		// meaningful returned, try to query more blocks. But the maximum
 		// is 2*checkBlocks.
 		if len(res.values) == 1 && len(results)+1+exp < oracle.checkBlocks*2 && number > 0 {
-			go oracle.getBlockValues(ctx, types.MakeSigner(oracle.backend.ChainConfig(), big.NewInt(int64(number))), number, sampleNumber, oracle.ignorePrice, result, quit)
+			// thunder_patch begin
+			session := oracle.backend.ChainConfig().Thunder.GetSessionFromDifficulty(head.Difficulty, head.Number, oracle.backend.ChainConfig().Thunder)
+			go oracle.getBlockValues(ctx, types.MakeSigner(oracle.backend.ChainConfig(), big.NewInt(int64(number)), session), number, sampleNumber, oracle.ignorePrice, result, quit)
+			// thunder_patch original
+			// go oracle.getBlockValues(ctx, types.MakeSigner(oracle.backend.ChainConfig(), big.NewInt(int64(number))), number, sampleNumber, oracle.ignorePrice, result, quit)
+			// thunder_patch end
 			sent++
 			exp++
 			number--
@@ -204,6 +217,19 @@ func (oracle *Oracle) SuggestTipCap(ctx context.Context) (*big.Int, error) {
 	if price.Cmp(oracle.maxPrice) > 0 {
 		price = new(big.Int).Set(oracle.maxPrice)
 	}
+
+	// thunder_patch begin
+	clearingPrice := oracle.backend.GetClearingGasPrice()
+	if price.Cmp(clearingPrice) < 0 {
+		price = new(big.Int).Set(clearingPrice)
+	}
+	if price.Cmp(big.NewInt(0)) == 0 {
+		log.Warn("Replace the suggested price from 0 to 1. " +
+			"if you run the chain from the genesis, it's normal and please ignore this warning")
+		price.Add(price, big.NewInt(1))
+	}
+	// thunder_patch end
+
 	oracle.cacheLock.Lock()
 	oracle.lastHead = headHash
 	oracle.lastPrice = price
