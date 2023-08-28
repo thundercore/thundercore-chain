@@ -111,17 +111,32 @@ func (oracle *Oracle) processBlock(bf *blockFees, percentiles []float64) {
 
 	bf.results.reward = make([]*big.Int, len(percentiles))
 	if len(bf.block.Transactions()) == 0 {
-		// return an all zero row if there are no transactions to gather data from
+		// thunder_patch begin
+		// return an all row with clearingPrice * 1.1 value if there are no transactions to gather data from
+		clearingPrice := oracle.backend.GetClearingGasPrice()
 		for i := range bf.results.reward {
-			bf.results.reward[i] = new(big.Int)
+			// set default reward to clearingPrice * 1.1
+			bf.results.reward[i] = big.NewInt(0).Mul(big.NewInt(0).Div(clearingPrice, big.NewInt(10)), big.NewInt(11))
 		}
+		// thunder_patch original
+		// // return an all zero row if there are no transactions to gather data from
+		// for i := range bf.results.reward {
+		// 	bf.results.reward[i] = new(big.Int)
+		// }
+		// thunder_patch end
 		return
 	}
 
 	sorter := make(sortGasAndReward, len(bf.block.Transactions()))
 	for i, tx := range bf.block.Transactions() {
 		reward, _ := tx.EffectiveGasTip(bf.block.BaseFee())
-		sorter[i] = txGasAndReward{gasUsed: bf.receipts[i].GasUsed, reward: reward}
+		// thunder_patch begin
+		// set reward * 1.1 value as a result to make sure metamask calculate a correct gas price
+		scaledReward := big.NewInt(0).Mul(big.NewInt(0).Div(reward, big.NewInt(10)), big.NewInt(11))
+		sorter[i] = txGasAndReward{gasUsed: bf.receipts[i].GasUsed, reward: scaledReward}
+		// thunder_patch original
+		// sorter[i] = txGasAndReward{gasUsed: bf.receipts[i].GasUsed, reward: reward}
+		// thunder_patch end
 	}
 	sort.Sort(sorter)
 

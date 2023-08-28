@@ -734,8 +734,8 @@ func (bc *BlockChainImpl) GetTtTransfersByBlockNumber(number uint64) ([]TtTransf
 	return bc.storage.(*StorageImpl).GetTtTransfersByBlockNumber(number)
 }
 
-func (bc *BlockChainImpl) GetPalaMetaForSnapshot() (map[string][]byte, error) {
-	return bc.storage.(*StorageImpl).GetPalaMetaForSnapshot()
+func (bc *BlockChainImpl) GetPalaMetaForSnapshot(bn rpc.BlockNumber) (map[string][]byte, error) {
+	return bc.storage.(*StorageImpl).GetPalaMetaForSnapshot(bn)
 }
 
 func (bc *BlockChainImpl) GetTrieStateForSnapshot(keys []common.Hash) ([]trie.SyncResult, error) {
@@ -765,6 +765,10 @@ func (bc *BlockChainImpl) GetSessionParams(session uint32) *SessionParams {
 
 func (bc *BlockChainImpl) GetBidStatus(bn rpc.BlockNumber) ([]*BidStatus, error) {
 	return bc.storage.(*StorageImpl).GetBidStatus(bn)
+}
+
+func (bc *BlockChainImpl) TraceTransaction(txHash common.Hash) ([]*TraceTransactionResult, error) {
+	return bc.storage.(*StorageImpl).TraceTransaction(txHash)
 }
 
 type HardforkCfg struct {

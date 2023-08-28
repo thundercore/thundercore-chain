@@ -43,6 +43,9 @@ var (
 	ElectionScheme = config.NewStringHardforkConfig(
 		"committee.electionScheme",
 		"the committee election scheme in use")
+	ClearingGasPriceScheme = config.NewStringHardforkConfig(
+		"committee.clearingGasPriceScheme",
+		"the committee clearing gas price scheme in use")
 	expectedCommSize = config.NewInt64HardforkConfig(
 		"committee.expectedCommSize",
 		"the expected commSize (the K value of the Top-K scheme), should be larger than minCommitteeSize")
@@ -214,7 +217,8 @@ func elect(candidates []*StakeInfo, freeze func(*StakeInfo) bool, sessionNum int
 	}
 	logger.Info("elect: having %d candidates, in %d", len(candidates), sessionNum)
 	logStakeInfos(logger, candidates)
-
+	// for tracking clearing gas
+	currentMaxStake := big.NewInt(0)
 	// Keep track of stake in the current auction
 	auctionStake := big.NewInt(0)
 	// Since PubVoteKey should be unique in a committee, we track seen PubVoteKeys to filter out
@@ -239,9 +243,20 @@ func elect(candidates []*StakeInfo, freeze func(*StakeInfo) bool, sessionNum int
 
 		// Add the current candidate to election.result
 		result.Members = append(result.Members, *c.ToMemberInfo())
-		// Set the ClearingGasPrice to the maximum bid
-		if result.ClearingGasPrice.Cmp(c.GasPrice) == -1 {
-			result.ClearingGasPrice.Set(c.GasPrice)
+		switch ClearingGasPriceScheme.GetValueAtSession(sessionNum) {
+		case "CandidatesMax":
+			// Set the ClearingGasPrice to the maximum bid
+			if result.ClearingGasPrice.Cmp(c.GasPrice) == -1 {
+				result.ClearingGasPrice.Set(c.GasPrice)
+			}
+		case "Top1CandidatesDecision":
+			// Set the ClearingGasPrice to the top 1 candidates bid
+			if currentMaxStake.Cmp(c.Stake) == 0 && result.ClearingGasPrice.Cmp(c.GasPrice) == -1 {
+				result.ClearingGasPrice.Set(c.GasPrice)
+			} else if currentMaxStake.Cmp(c.Stake) == -1 {
+				result.ClearingGasPrice.Set(c.GasPrice)
+				currentMaxStake = c.Stake
+			}
 		}
 
 		switch ElectionScheme.GetValueAtSession(sessionNum) {

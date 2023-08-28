@@ -291,9 +291,9 @@ var (
 		Default:     0,
 	})
 
-	HistoryOrderList = r.NewString(Config{
-		Key:         "chain.historyOrderList",
-		Description: "Data directory order list for history stores and use comma as split character(default = 'chaindata.1,chaindata.2 ...')",
+	HistoryOrderList = r.NewStringSlice(Config{
+		Key:         "dataDirHistory",
+		Description: "Data directory order list for history stores and path must be full path. (example: /datadir-oldest1)",
 	})
 
 	ProposerIpPort = r.NewString(Config{

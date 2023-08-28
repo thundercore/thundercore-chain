@@ -129,15 +129,17 @@ func (bs *BatchSyncer) start() {
 	for i := 0; i < WORKERS; i++ {
 		bs.taskWg.Add(1)
 
-		go func() {
+		go func(i int) {
 			defer bs.taskWg.Done()
 			for blocks := range bs.taskCh {
 				if err := bs.process(blocks); err != nil {
 					panic(fmt.Sprintf("failed to process block syncing: %s", err.Error()))
 				}
+				// fmt.Printf("write %v into doneCh", blocks)
 				bs.doneCh <- blocks
 			}
-		}()
+			fmt.Printf("goroutine %d stopped\n", i)
+		}(i)
 	}
 }
 

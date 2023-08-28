@@ -165,6 +165,7 @@ const (
 	Pala2P5SLoad       uint64 = 16000
 	Pala2P5Calls       uint64 = 14000
 	RNGGasBumpV4       uint64 = 50
+	RNGGasBumpV5       uint64 = 10
 	// thunder_patch end
 )
 

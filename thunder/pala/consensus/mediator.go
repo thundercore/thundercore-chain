@@ -143,7 +143,6 @@ type Mediator struct {
 	extraServices      []startstopwaiter.StartStopWaiter
 
 	rpcMaxDelayBlock int64
-	rpcRunning       bool
 	rpcSwitch        RpcSwitch
 	rpcSuspendTimer  *time.Timer
 	rpcSuspendBuffer time.Duration
@@ -238,6 +237,7 @@ type roleForChainSyncer struct {
 type RpcSwitch interface {
 	ResumeRpc() error
 	SuspendRpc()
+	IsRpcRunning() bool
 }
 
 // Types used with selfChan - Begin
@@ -340,7 +340,6 @@ func NewMediator(cfg MediatorConfig) *Mediator {
 		rpcSwitch:                        cfg.RpcSwitch,
 		rpcMaxDelayBlock:                 cfg.RpcMaxDelayBlock,
 		rpcSuspendBuffer:                 cfg.RpcSuspendBuffer,
-		rpcRunning:                       false,
 		bidder:                           cfg.Bidder,
 	}
 
@@ -929,7 +928,7 @@ func (m *Mediator) Start() error {
 	// 3. The test code resets Mediator's storage.
 	// 4. The test code restarts Mediator.
 	// If we only reset in stopEventLoop(), m.syncer's state is wrong.
-	m.reset()
+	m.reset(false)
 	stoppedChan := make(chan interface{})
 	// We get stopChan from StartStopWaiterImpl and will use it to do the clean ups.
 	action := func(stopChan chan interface{}) error {
@@ -1063,7 +1062,7 @@ func (m *Mediator) sanityCheck(id ConsensusId, session blockchain.Session) {
 }
 
 // Called in handleEventLoop goroutine or before the start.
-func (m *Mediator) reset() {
+func (m *Mediator) reset(stop bool) {
 	m.selfChan = make(chan interface{}, 1024)
 	if m.blockChainEventChan != nil {
 		m.chain.RemoveNotificationChannel(m.blockChainEventChan)
@@ -1083,17 +1082,15 @@ func (m *Mediator) reset() {
 	m.syncer.DoSomethingIfNeeded()
 
 	if m.syncer.IsBlockChainBehind() {
-		if m.rpcRunning {
+		// should not suspend rpc when start, causes deadlock from Node.Start()
+		if stop && m.rpcSwitch.IsRpcRunning() {
 			m.rpcSwitch.SuspendRpc()
 		}
 		if m.bidder != nil {
 			m.bidder.StopBid()
 		}
-		m.rpcRunning = false
 		logger.Warn("[%s] Block chain is behind.", m.loggingId)
 	} else {
-		m.rpcRunning = true
-
 		if m.bidder != nil {
 			m.bidder.StartBid()
 		}
@@ -1240,7 +1237,7 @@ ForLoop:
 		}
 	}
 
-	m.reset()
+	m.reset(true)
 
 	logger.Note("[%s] stopped", m.loggingId)
 }
@@ -1367,7 +1364,6 @@ func (m *Mediator) handleBlockChainEvents() {
 				logger.Warn("[%s] start to suspend RPC.", m.loggingId)
 				m.rpcSwitch.SuspendRpc()
 				logger.Warn("[%s] RPC suspended.", m.loggingId)
-				m.rpcRunning = false
 				if m.bidder != nil {
 					m.bidder.StopBid()
 				}
@@ -1376,13 +1372,15 @@ func (m *Mediator) handleBlockChainEvents() {
 		}
 
 		// chain data delay after run a while.
-		if m.rpcRunning && m.rpcSuspendTimer == nil {
+		if m.rpcSwitch.IsRpcRunning() && m.rpcSuspendTimer == nil {
 			logger.Warn("[%s] RPC will be suspended after %s due to chain behind.", m.loggingId, m.rpcSuspendBuffer.String())
 			m.rpcSuspendTimer = time.NewTimer(m.rpcSuspendBuffer)
 		}
 	} else {
+		logger.Warn("[%s] Block chain is synced.", m.loggingId)
+
 		if m.rpcSuspendTimer != nil {
-			logger.Info("[%s] RPC suspend timer is stopped.", m.loggingId)
+			logger.Warn("[%s] RPC suspend timer is stopped.", m.loggingId)
 			if !m.rpcSuspendTimer.Stop() {
 				select {
 				case <-m.rpcSuspendTimer.C:
@@ -1392,10 +1390,12 @@ func (m *Mediator) handleBlockChainEvents() {
 			}
 			m.rpcSuspendTimer = nil
 		}
-		if !m.rpcRunning {
+		if !m.rpcSwitch.IsRpcRunning() {
 			if err := m.rpcSwitch.ResumeRpc(); err == nil {
-				logger.Info("[%s] RPC resumed due to chain synced.", m.loggingId)
-				m.rpcRunning = true
+				logger.Warn("[%s] RPC resumed due to chain synced.", m.loggingId)
+			} else if strings.Contains(err.Error(), "JSON-RPC over HTTP is already enabled") {
+				// FIXME: RPC should be suspended in `reset()` with blockchain behind state.
+				logger.Warn("[%s] Block chain is synced.", m.loggingId)
 			} else {
 				logger.Error("[%s] failed to resume rpc: %v", m.loggingId, err.Error())
 			}
@@ -2154,7 +2154,7 @@ func (m *Mediator) getShortName(id ConsensusId) string {
 
 func (m *Mediator) GetRpcStatusForTest() bool {
 	utils.EnsureRunningInTestCode()
-	return m.rpcRunning
+	return m.rpcSwitch.IsRpcRunning()
 }
 
 //--------------------------------------------------------------------

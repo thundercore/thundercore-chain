@@ -120,7 +120,7 @@ var (
 	// thunder_patch begin
 	HistoryFlag = DirectoryFlag{
 		Name:  "datadir.history",
-		Usage: "Data directory order list for history stores and use comma as split character(default = 'chaindata.1,chaindata.2 ...')",
+		Usage: "Data directory order list for history stores, use comma as split character and path must be full path. (example: /datadir-oldest1,/datadir-oldest2)",
 	}
 	// thunder_patch end
 	MinFreeDiskSpaceFlag = DirectoryFlag{
@@ -1536,7 +1536,7 @@ func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *ethconfig.Config) {
 	}
 	// thunder_patch begin
 	if ctx.GlobalIsSet(HistoryFlag.Name) {
-		cfg.DatabaseHistory = ctx.GlobalString(HistoryFlag.Name)
+		cfg.DatabaseHistory = strings.Split(ctx.GlobalString(HistoryFlag.Name), ",")
 	}
 	// thunder_patch end
 
@@ -1835,7 +1835,8 @@ func MakeChainDatabase(ctx *cli.Context, stack *node.Node, readonly bool) ethdb.
 	)
 	// thunder_patch begin
 	// thundercore does not support light or freezer mode
-	chainDb, err = stack.OpenDatabaseWithHistory("chaindata", cache, handles, ctx.GlobalString(HistoryFlag.Name), "", readonly)
+	dbList := strings.Split(ctx.GlobalString(HistoryFlag.Name), ",")
+	chainDb, err = stack.OpenDatabaseWithHistory("chaindata", cache, handles, dbList, "", readonly)
 	// thunder_patch original
 	// if ctx.GlobalString(SyncModeFlag.Name) == "light" {
 	// 	name := "lightchaindata"

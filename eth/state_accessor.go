@@ -140,6 +140,7 @@ func (eth *Ethereum) stateAtBlock(block *types.Block, reexec uint64, base *state
 
 // stateAtTransaction returns the execution environment of a certain transaction.
 // Referenced by thunder2.storage.getTtTransferByBlockNumberInternal(...)
+// Referenced by thunder2.storage.stateAtTransaction(...)
 func (eth *Ethereum) stateAtTransaction(block *types.Block, txIndex int, reexec uint64) (core.Message, vm.BlockContext, *state.StateDB, error) {
 	// Short circuit if it's genesis block.
 	if block.NumberU64() == 0 {

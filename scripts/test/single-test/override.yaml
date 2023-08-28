@@ -24,6 +24,7 @@ rpc:
     # RPC modules: net web3 eth
     modules: thunder net web3 eth personal debug
   logRequests: true
+  suspendBuffer: 150s
 chain:
   genesis: ./keystore/genesis.json
 proposer:

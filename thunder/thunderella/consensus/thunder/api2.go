@@ -91,8 +91,8 @@ func (a *PublicApi) GetTtTransfersByBlockNumber(number hexutil.Uint64) (interfac
 	return a.rpcDelegate.GetTtTransfersByBlockNumber(uint64(number))
 }
 
-func (a *PublicApi) GetPalaMetaForSnapshot() (interface{}, error) {
-	return a.rpcDelegate.GetPalaMetaForSnapshot()
+func (a *PublicApi) GetPalaMetaForSnapshot(bn rpc.BlockNumber) (interface{}, error) {
+	return a.rpcDelegate.GetPalaMetaForSnapshot(bn)
 }
 
 func (a *PublicApi) GetTrieStateForSnapshot(keys []common.Hash) (interface{}, error) {
@@ -126,4 +126,8 @@ func (a *PublicApi) GetBidStatus(bn rpc.BlockNumber) (interface{}, error) {
 
 func (a *PublicApi) GetStatus() (interface{}, error) {
 	return a.rpcDelegate.GetStatus()
+}
+
+func (a *PublicApi) TraceTransaction(txHash common.Hash) (interface{}, error) {
+	return a.rpcDelegate.TraceTransaction(txHash)
 }

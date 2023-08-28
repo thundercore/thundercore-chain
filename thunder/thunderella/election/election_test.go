@@ -502,3 +502,70 @@ func TestElectR3WithDifferentGasPrice(t *testing.T) {
 	}
 	testResult(require, expected, actual)
 }
+
+func TestElectR3GasPriceSchemaTop1CandidatesDecision(t *testing.T) {
+	require := require.New(t)
+
+	k, err := bls.NewSigningKey()
+	require.Equal(nil, err, "Got an error creating signing key: %s", err)
+
+	k2, _ := bls.NewSigningKey()
+	k3, _ := bls.NewSigningKey()
+
+	// 3 * MinBidderStake + gas price 100
+	ClearingGasPriceScheme.SetTestValueAtSession("Top1CandidatesDecision", 0)
+	s1 := &StakeInfo{
+		StakeMsg: StakeMsg{
+			Stake:      new(big.Int).Mul(MinBidderStake.GetValueAtSession(0), big.NewInt(3)),
+			PubVoteKey: k.GetPublicKey(),
+			Coinbase:   common.HexToAddress("0x1"),
+			GasPrice:   big.NewInt(100),
+		},
+		StakingAddr: common.HexToAddress("0x1"),
+		RefundID:    []byte{},
+	}
+
+	// 3 * MinBidderStake + gas price 200
+	s2 := &StakeInfo{
+		StakeMsg: StakeMsg{
+			Stake:      new(big.Int).Mul(MinBidderStake.GetValueAtSession(0), big.NewInt(3)),
+			PubVoteKey: k2.GetPublicKey(),
+			Coinbase:   common.HexToAddress("0x1"),
+			GasPrice:   big.NewInt(200),
+		},
+		StakingAddr: common.HexToAddress("0x2"),
+		RefundID:    []byte{},
+	}
+
+	// 2 * MinBidderStake + gas price 300
+	s3 := &StakeInfo{
+		StakeMsg: StakeMsg{
+			Stake:      new(big.Int).Mul(MinBidderStake.GetValueAtSession(0), big.NewInt(2)),
+			PubVoteKey: k3.GetPublicKey(),
+			Coinbase:   common.HexToAddress("0x1"),
+			GasPrice:   big.NewInt(300),
+		},
+		StakingAddr: common.HexToAddress("0x3"),
+		RefundID:    []byte{},
+	}
+
+	stakes := make([]*StakeInfo, 0)
+	stakes = append(stakes, s1)
+	stakes = append(stakes, s2)
+	stakes = append(stakes, s3)
+
+	oldThresh := AuctionStakeThreshold.GetValueAtSession(0)
+	defer func() {
+		AuctionStakeThreshold.SetTestValueAtSession(oldThresh, 0)
+	}()
+
+	AuctionStakeThreshold.SetTestValueAtSession(big.NewInt(1), 0)
+	actual := ElectR3(stakes, filterCheck(stakes), 0)
+
+	// the order is 1,2,3 and ClearingGasPrice get the top 1 candidates 200
+	expected := &Result{
+		Members:          []committee.MemberInfo{*s1.ToMemberInfo(), *s2.ToMemberInfo(), *s3.ToMemberInfo()},
+		ClearingGasPrice: big.NewInt(200),
+	}
+	testResult(require, expected, actual)
+}

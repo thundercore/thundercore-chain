@@ -161,7 +161,7 @@ type EthConfig struct {
 	TrieCachePercent int64
 	FdLimit          int64
 	SnapshotCache    int64
-	HistoryOrderList string
+	HistoryOrderList []string
 
 	MaxRpcLogsBlockRange int64
 	TxLookupLimit        int64

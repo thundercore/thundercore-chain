@@ -64,6 +64,14 @@ func (r *tempRngForCopyChange) abiGenerateRNG(evm *vm.EVM) []byte {
 	return randomNumber[:]
 }
 
+type randomV5 struct {
+	randomV3
+}
+
+func (r *randomV5) RequiredGas(input []byte) uint64 {
+	return r.randomV3.RequiredGas(input) * params.RNGGasBumpV5
+}
+
 type randomV4 struct {
 	randomV3
 }

@@ -55,15 +55,22 @@ func deleteNotarization(d DatabaseDeleter, sn BlockSn) error {
 
 func readHistoryDatabase(r ethdb.Reader, key []byte) ([]byte, error) {
 	// retrieves the given key in the default store.
-	data, _ := r.Get(key)
-	if len(data) == 0 {
-		// Then try to look up the history data in the history store.
-		data, _ = r.HistoryGet(key)
-		if len(data) == 0 {
-			return nil, errDataNotFound
-		}
+	data, err := r.Get(key)
+	if len(data) != 0 {
+		return data, nil
 	}
-	return data, nil
+
+	// Then try to look up the history data in the history store.
+	data, _ = r.HistoryGet(key)
+	if len(data) != 0 {
+		return data, nil
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	return nil, errDataNotFound
 }
 
 func readNotarization(r ethdb.Reader, marshaller DataUnmarshaller, sn BlockSn) Notarization {

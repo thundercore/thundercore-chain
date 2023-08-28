@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/ethereum/go-ethereum/thunder/pala/blockchain"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -17,15 +18,19 @@ import (
 )
 
 func NewSyncGroupByConfig(config *SnapshotConfig) (*PeerGroup, error) {
-	peers, err := newPeers(config)
+	peers, err := newPeers(config.RpcUrls, config.Concurrency)
 	if err != nil {
 		return nil, err
 	}
-	return NewSyncGroup(peers), nil
+	legacyPeers, err := newPeers(config.ArchiveRpcs, config.Concurrency)
+	if err != nil {
+		return nil, err
+	}
+	return NewSyncGroup(peers, legacyPeers), nil
 }
 
-func NewSyncGroup(peers []SyncPeer) *PeerGroup {
-	ch := make(chan SyncPeer, MAX_CONNECTION)
+func NewSyncGroup(peers []SyncPeer, archivePeers []SyncPeer) *PeerGroup {
+	ch := make(chan SyncPeer, len(peers))
 
 	for _, peer := range peers {
 		select {
@@ -37,17 +42,18 @@ func NewSyncGroup(peers []SyncPeer) *PeerGroup {
 	}
 
 	return &PeerGroup{
-		peers:  peers,
-		ch:     ch,
-		signal: make(chan os.Signal, 1),
+		peers:        peers,
+		archivePeers: archivePeers,
+		ch:           ch,
+		signal:       make(chan os.Signal, 1),
 	}
 }
 
-func newPeers(config *SnapshotConfig) ([]SyncPeer, error) {
+func newPeers(rpcs []string, concurrency int) ([]SyncPeer, error) {
 	var err error
 	peers := []SyncPeer{}
-	for _, rpc := range config.RpcUrls {
-		num := config.Concurrency
+	for _, rpc := range rpcs {
+		num := concurrency
 
 		if strings.Contains(rpc, "=") {
 			items := strings.Split(rpc, "=")
@@ -71,14 +77,15 @@ func newPeers(config *SnapshotConfig) ([]SyncPeer, error) {
 }
 
 type PeerGroup struct {
-	peers  []SyncPeer
-	ch     chan SyncPeer
-	signal chan os.Signal
-	mu     sync.Mutex
+	peers        []SyncPeer
+	archivePeers []SyncPeer
+	ch           chan SyncPeer
+	signal       chan os.Signal
+	mu           sync.Mutex
 }
 
 func (pg *PeerGroup) reloadConfig(config *SnapshotConfig) error {
-	newPeers, err := newPeers(config)
+	newPeers, err := newPeers(config.RpcUrls, config.Concurrency)
 	if err != nil {
 		return err
 	}
@@ -180,10 +187,10 @@ func (pg *PeerGroup) GetSlowestPeer() (SyncPeer, error) {
 	return ret.peer, nil
 }
 
-func (pg *PeerGroup) GetPalaMeta() (ret map[string][]byte, err error) {
+func (pg *PeerGroup) GetPalaMeta(bn rpc.BlockNumber) (ret map[string][]byte, err error) {
 	for retry := 0; retry < RETRY_MAX; retry++ {
 		peer := pg.acquirePeer()
-		ret, err = peer.GetPalaMeta()
+		ret, err = peer.GetPalaMeta(bn)
 		if err == nil {
 			pg.releasePeer(peer)
 			return ret, nil
@@ -234,6 +241,17 @@ func (pg *PeerGroup) BatchGetTtBlocks(blockNums []*big.Int) (ret []*blockchain.T
 		pg.timeoutPeer(peer)
 		fmt.Printf("GetFullBlocks raised error: %s\n", err.Error())
 	}
+
+	// Fallback to archive peers
+	for _, peer := range pg.archivePeers {
+		ret, err = peer.BatchGetTtBlocks(blockNums)
+		if err == nil {
+			return
+		} else {
+			fmt.Printf("failed to get block by archive node: %v, %s\n", peer.Id(), err.Error())
+		}
+	}
+
 	return
 }
 

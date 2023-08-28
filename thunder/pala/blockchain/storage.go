@@ -35,13 +35,13 @@ var InitialSupply = big.NewInt(0)
 
 // StorageImpl Data Integrity Design
 // The only two kinds of write operations into offchain data are:
-//    1. AddNotarization(): add notarization uses a batch atomic commit when updating notarization, freshest notarization head, and finalized head.
-//       The geth uses to record its "canonical chain" must also be kept consistent when adding a notarization but is not updated in the same commit.
-//       We maintain canonical chain data integrity by doing data recovery between `bc.CurrentBlock()` and `storage.GetFreshestNotarization` on our initial
-//       call of `integrityCheck()`.
-//    2. InsertBlock() & WriteBlockWithState(): When writing, we first insert the block into `core.BlockChain` then write our block index (BlockSn)
-//       When reading, we always read the index and block in reverse order, so altough the block insertion and index write is not one
-//       atomic operation, data integrity is still maintained.
+//  1. AddNotarization(): add notarization uses a batch atomic commit when updating notarization, freshest notarization head, and finalized head.
+//     The geth uses to record its "canonical chain" must also be kept consistent when adding a notarization but is not updated in the same commit.
+//     We maintain canonical chain data integrity by doing data recovery between `bc.CurrentBlock()` and `storage.GetFreshestNotarization` on our initial
+//     call of `integrityCheck()`.
+//  2. InsertBlock() & WriteBlockWithState(): When writing, we first insert the block into `core.BlockChain` then write our block index (BlockSn)
+//     When reading, we always read the index and block in reverse order, so altough the block insertion and index write is not one
+//     atomic operation, data integrity is still maintained.
 type StorageImpl struct {
 	db                  ethdb.Database
 	bc                  *core.BlockChain
@@ -850,11 +850,29 @@ func WritePalaMeta(snapshotDb DatabaseWriter, palaMeta map[string][]byte) (uint6
 	return height, nil
 }
 
-func (s *StorageImpl) GetPalaMetaForSnapshot() (map[string][]byte, error) {
+func (s *StorageImpl) GetPalaMetaForSnapshot(bn rpc.BlockNumber) (map[string][]byte, error) {
 	ret := make(map[string][]byte)
-	sn := s.GetFreshestNotarizedHeadSn()
+
+	var sn BlockSn
+	var lastStopBlock Block
+	if bn == rpc.LatestBlockNumber {
+		sn = s.GetFreshestNotarizedHeadSn()
+		lastStopBlock = s.GetLatestFinalizedStopBlock()
+	} else {
+		head := s.GetBlockByNumber(uint64(bn.Int64()))
+		if head != nil {
+			sn = head.GetBlockSn()
+		}
+		h, stopSn := readSessionStopHeader(s.db, sn.Epoch.Session-1)
+		if h == nil {
+			return nil, xerrors.Errorf("failed to get last stop block")
+		}
+		lastStopBlock = s.GetBlock(stopSn)
+	}
+
 	block := s.GetBlock(sn)
 	ret["blockHeight"] = []byte(strconv.FormatUint(block.GetNumber(), 10))
+	ret["lastStopBlockSn"] = lastStopBlock.GetBlockSn().ToBytes()
 
 	if _, err := sn.Epoch.PreviousEpoch(); err == nil {
 		// `err == nil` means there existed a previous epoch
@@ -869,18 +887,18 @@ func (s *StorageImpl) GetPalaMetaForSnapshot() (map[string][]byte, error) {
 		}
 	}
 
-	lastStopBlock := s.GetLatestFinalizedStopBlock()
-	ret["lastStopBlockSn"] = lastStopBlock.GetBlockSn().ToBytes()
-	sessionKey := sessionStopKey(lastStopBlock.GetBlockSn().Epoch.Session)
-	stopBlk, err := readHistoryDatabase(s.db, sessionKey)
-	if err != nil {
-		return ret, xerrors.Errorf(
-			"failed to get last stop block nota %v: %s",
-			lastStopBlock.GetBlockSn().String(),
-			err.Error(),
-		)
+	if lastStopBlock != nil {
+		sessionKey := sessionStopKey(lastStopBlock.GetBlockSn().Epoch.Session)
+		stopBlk, err := readHistoryDatabase(s.db, sessionKey)
+		if err != nil {
+			return ret, xerrors.Errorf(
+				"failed to get last stop block nota %v: %s",
+				lastStopBlock.GetBlockSn().String(),
+				err.Error(),
+			)
+		}
+		ret[string(sessionStopBlockPrefix)] = stopBlk
 	}
-	ret[string(sessionStopBlockPrefix)] = stopBlk
 
 	keys := [][]byte{
 		freshestNotarizedHead,
@@ -935,15 +953,16 @@ func (s *StorageImpl) GetTtBlockForSnapshot(number uint64) (*TtBlockForSnapshot,
 		sn := GetBlockSnFromDifficulty(header.Difficulty, header.Number, s.bc.Config().Thunder)
 		blockMeta, err := readHistoryDatabase(s.db, blockSnKey(sn))
 		if err != nil {
+			logger.Error("Failed to read history database for block sn: %v", sn.String())
 			return nil, err
 		}
 
 		sessionStopBlock := []byte{}
-		// Sync the session stop block at the first block of session
-		if sn.Epoch.E == 1 && sn.S == 1 {
+		if s.IsStopBlockHeader(header) {
 			key := sessionStopKey(sn.Epoch.Session)
 			sessionStopBlock, err = readHistoryDatabase(s.db, key)
 			if err != nil {
+				logger.Error("Failed to read history database for session stop: %v", sn.String())
 				return nil, err
 			}
 		}
@@ -1039,6 +1058,92 @@ func (s *StorageImpl) GetSessionParams(session uint32) *SessionParams {
 }
 
 // end of chain status rpc
+
+func (s *StorageImpl) stateAtTransaction(block *types.Block, txIndex int) (core.Message, vm.BlockContext, *state.StateDB, error) {
+	// Short circuit if it's genesis block.
+	if block.NumberU64() == 0 {
+		return nil, vm.BlockContext{}, nil, xerrors.New("no transaction in genesis")
+	}
+	// Create the parent state database
+	parent := s.bc.GetBlockByHash(block.ParentHash())
+	if parent == nil {
+		return nil, vm.BlockContext{}, nil, fmt.Errorf("parent %#x not found", block.ParentHash())
+	}
+	// Lookup the statedb of parent block from the live database,
+	// otherwise regenerate it on the flight.
+	statedb, err := s.bc.StateAt(parent.Root())
+	if err != nil {
+		return nil, vm.BlockContext{}, nil, err
+	}
+	if txIndex == 0 && len(block.Transactions()) == 0 {
+		return nil, vm.BlockContext{}, statedb, nil
+	}
+	// // Recompute transactions up to the target index.
+	// thunder_patch begin
+	header := block.Header()
+	blockSn := GetBlockSnFromDifficulty(header.Difficulty, header.Number, s.bc.Config().Thunder)
+	signer := types.MakeSigner(s.bc.Config(), block.Number(), uint32(blockSn.Epoch.Session))
+	// thunder_patch original
+	// signer := types.MakeSigner(eth.blockchain.Config(), block.Number())
+	// thunder_patch end
+	for idx, tx := range block.Transactions() {
+		// Assemble the transaction call message and return if the requested offset
+		msg, _ := tx.AsMessage(signer, block.BaseFee())
+		txContext := core.NewEVMTxContext(msg)
+		context := core.NewEVMBlockContext(block.Header(), s.bc, nil)
+		if idx == txIndex {
+			return msg, context, statedb, nil
+		}
+		// Not yet the searched for transaction, execute on top of the current state
+		vmenv := vm.NewEVM(context, txContext, statedb, s.bc.Config(), vm.Config{})
+		statedb.Prepare(tx.Hash(), idx)
+		if _, err := core.ApplyMessage(vmenv, msg, new(core.GasPool).AddGas(tx.Gas())); err != nil {
+			return nil, vm.BlockContext{}, nil, fmt.Errorf("transaction %#x failed: %v", tx.Hash(), err)
+		}
+		// Ensure any modifications are committed to the state
+		// Only delete empty objects if EIP158/161 (a.k.a Spurious Dragon) is in effect
+		// thunder_patch begin
+		statedb.IntermediateRoot(vmenv.ChainConfig().IsEIP158(block.Number()))
+		// thunder_patch original
+		// statedb.Finalise(vmenv.ChainConfig().IsEIP158(block.Number()))
+		// thunder_patch end
+	}
+	return nil, vm.BlockContext{}, nil, fmt.Errorf("transaction index %d out of range for block %#x", txIndex, block.Hash())
+}
+
+func (s *StorageImpl) TraceTransaction(txHash common.Hash) ([]*TraceTransactionResult, error) {
+	_, blockHash, blockNumber, index := rawdb.ReadTransaction(s.db, txHash)
+	if blockNumber == 0 {
+		return nil, xerrors.Errorf("transaction not found")
+	}
+
+	block := s.bc.GetBlockByHash(blockHash)
+	if block == nil {
+		return nil, ErrBlockNotFound
+	}
+
+	msg, vmctx, statedb, err := s.stateAtTransaction(block, int(index))
+	if err != nil {
+		return nil, xerrors.Errorf("failed to get state at transaction: %w", err)
+	}
+
+	// Assemble the structured logger or the JavaScript tracer
+	txContext := core.NewEVMTxContext(msg)
+	tracer := NewScanTracer()
+
+	// Run the transaction with tracing enabled.
+	vmenv := vm.NewEVM(vmctx, txContext, statedb, s.bc.Config(), vm.Config{Debug: true, Tracer: tracer, NoBaseFee: true})
+
+	// Call Prepare to clear out the statedb access list
+	statedb.Prepare(common.Hash{}, 0)
+
+	_, err = core.ApplyMessage(vmenv, msg, new(core.GasPool).AddGas(msg.Gas()))
+	if err != nil {
+		return nil, fmt.Errorf("tracing failed: %w", err)
+	}
+
+	return tracer.GetResults(), nil
+}
 
 type BidStatus struct {
 	committee.MemberInfo

@@ -361,17 +361,17 @@ func NewHistoryDatabaseWithDBListInstance(db ethdb.KeyValueStore, dbList []ethdb
 }
 
 // NewLevelDBDatabaseWithHistory creates a persistent key-value database with cold storages which are immutable chain segments.
-func NewLevelDBDatabaseWithHistory(rootPath string, defaultDir string, orderList string, cache int, handles int, namespace string, readonly bool) (ethdb.Database, error) {
+func NewLevelDBDatabaseWithHistory(rootPath string, defaultDir string, orderList []string, cache int, handles int, namespace string, readonly bool) (ethdb.Database, error) {
 	db, err := leveldb.New(filepath.Join(rootPath, defaultDir), cache, handles, namespace, readonly)
 	if err != nil {
 		return nil, err
 	}
 	var hsdb ethdb.HistoryStore
 	// HistoryStore only support readonly mode
-	if orderList == "" {
+	if len(orderList) == 0 {
 		hsdb, err = newReadonlyDefaultHistory(rootPath, defaultDir, cache, handles, namespace)
 	} else {
-		hsdb, err = newReadonlyOrderListHistory(rootPath, orderList, cache, handles, namespace)
+		hsdb, err = newReadonlyOrderListHistory(orderList, cache, handles, namespace)
 	}
 	if err != nil {
 		return nil, err

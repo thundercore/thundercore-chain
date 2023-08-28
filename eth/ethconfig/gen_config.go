@@ -41,7 +41,7 @@ func (c Config) MarshalTOML() (interface{}, error) {
 		DatabaseHandles         int                    `toml:"-"`
 		DatabaseCache           int
 		DatabaseFreezer         string
-		DatabaseHistory         string
+		DatabaseHistory         []string
 		TrieCleanCache          int
 		TrieCleanCacheJournal   string        `toml:",omitempty"`
 		TrieCleanCacheRejournal time.Duration `toml:",omitempty"`
@@ -133,7 +133,7 @@ func (c *Config) UnmarshalTOML(unmarshal func(interface{}) error) error {
 		DatabaseHandles         *int                   `toml:"-"`
 		DatabaseCache           *int
 		DatabaseFreezer         *string
-		DatabaseHistory         *string
+		DatabaseHistory         []string
 		TrieCleanCache          *int
 		TrieCleanCacheJournal   *string        `toml:",omitempty"`
 		TrieCleanCacheRejournal *time.Duration `toml:",omitempty"`
@@ -227,7 +227,7 @@ func (c *Config) UnmarshalTOML(unmarshal func(interface{}) error) error {
 		c.DatabaseFreezer = *dec.DatabaseFreezer
 	}
 	if dec.DatabaseHistory != nil {
-		c.DatabaseHistory = *dec.DatabaseHistory
+		c.DatabaseHistory = dec.DatabaseHistory
 	}
 	if dec.TrieCleanCache != nil {
 		c.TrieCleanCache = *dec.TrieCleanCache

@@ -617,7 +617,7 @@ func (bm *BlockMakerImpl) prepareHeader(parent *types.Block, parentSn BlockSn, s
 	if parentSn.Epoch.Session == sn.Epoch.Session {
 		sessionOffset = parent.Nonce() + 1
 	}
-	blockTime := new(big.Int).SetInt64(clk.Now().Unix() + 1)
+	blockTime := new(big.Int).SetInt64(clk.Now().Unix() + int64(bm.timePerBlock.Seconds()))
 	parentTime := new(big.Int).SetUint64(parent.Time())
 	if blockTime.Cmp(parentTime) <= 0 {
 		// NOTE: We don't need to wait for now. See checkStopCondition().

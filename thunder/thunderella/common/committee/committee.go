@@ -186,13 +186,18 @@ func (ci *CommInfo) FindAccelId(pk *bls.PublicKey) (uint, error) {
 	return InvalidAccelID, ErrAccelIDNotFound
 }
 
-// ClearingGasPrice returns the max gas price of a committee.
+// ClearingGasPrice returns the top 1 candidates gas price of a committee.
 // Returns zero if a committee has no members.
 func (ci *CommInfo) ClearingGasPrice() *big.Int {
+	currentMaxStake := big.NewInt(0)
 	c := big.NewInt(0)
 	for i := 0; i < len(ci.MemberInfo); i += 1 {
-		if c.Cmp(ci.MemberInfo[i].GasPrice) == -1 {
+		// Set the ClearingGasPrice to the top 1 candidates bid
+		if currentMaxStake.Cmp(ci.MemberInfo[i].Stake) == 0 && c.Cmp(ci.MemberInfo[i].GasPrice) == -1 {
 			c.Set(ci.MemberInfo[i].GasPrice)
+		} else if currentMaxStake.Cmp(ci.MemberInfo[i].Stake) == -1 {
+			c.Set(ci.MemberInfo[i].GasPrice)
+			currentMaxStake = ci.MemberInfo[i].Stake
 		}
 	}
 	return c

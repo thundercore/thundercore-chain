@@ -66,19 +66,18 @@ func newReadonlyDefaultHistory(rootDir, dataDir string, cache int, handles int, 
 // newReadonlyOrderListHistory open history chain databases to make chain query old blocks or old transactions.
 //
 // - Use config order as history query order
-func newReadonlyOrderListHistory(rootDir, orderList string, cache int, handles int, namespace string) (*history, error) {
+func newReadonlyOrderListHistory(orderList []string, cache int, handles int, namespace string) (*history, error) {
 	history := &history{}
 
-	dirList := strings.Split(orderList, ",")
-	for _, dirName := range dirList {
-		historyNamespace := namespace + "history/" + dirName + "/"
+	for _, dbPath := range orderList {
+		historyNamespace := namespace + "history/" + dbPath + "/"
 		// Readonly levelDB
-		db, err := leveldb.New(filepath.Join(rootDir, dirName), cache, handles, historyNamespace, true)
+		db, err := leveldb.New(dbPath, cache, handles, historyNamespace, true)
 		if err != nil {
 			return nil, err
 		}
 		history.dbList = append(history.dbList, db)
-		log.Info("Opened history database", "database", dirName, "readonly")
+		log.Info("Opened history database", "database", dbPath, "readonly")
 	}
 	return history, nil
 }

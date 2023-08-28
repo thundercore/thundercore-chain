@@ -11,6 +11,7 @@ import (
 	"sync"
 	"syscall"
 
+	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/ethereum/go-ethereum/thunder/pala/blockchain"
 
 	"gopkg.in/yaml.v2"
@@ -43,7 +44,7 @@ type SyncPeer interface {
 	Disable()
 	Enable()
 
-	GetPalaMeta() (map[string][]byte, error)
+	GetPalaMeta(bn rpc.BlockNumber) (map[string][]byte, error)
 	GetBlockByNumber(*big.Int) (*types.Block, error)
 	GetTtBlock(*big.Int) (*blockchain.TtBlockForSnapshot, error)
 	GetTrieState(keys []common.Hash) ([]trie.SyncResult, error)
@@ -57,7 +58,6 @@ func NewSnapshotTaker(configPath string, sig chan os.Signal) (*SnapshotTaker, er
 	}
 
 	// Open database for snapshot
-	// TODO(kevinfang): LDBDatabase was removed in ethdb/databa
 	db, err := rawdb.NewLevelDBDatabase(config.Datadir, 0, 0, "", false)
 	if err != nil {
 		return nil, err
@@ -150,7 +150,7 @@ func (s *SnapshotTaker) close() {
 }
 
 func (s *SnapshotTaker) run() error {
-	head, err := s.syncChainMeta()
+	head, err := s.syncChainMeta(s.config.TargetBlock)
 	if err != nil {
 		return err
 	}
@@ -167,8 +167,9 @@ func (s *SnapshotTaker) run() error {
 }
 
 // Synchronize chain mata from slowest peer and return its head block.
-func (s *SnapshotTaker) syncChainMeta() (*types.Block, error) {
+func (s *SnapshotTaker) syncChainMeta(target int) (*types.Block, error) {
 	var (
+		bn   rpc.BlockNumber
 		head *types.Block
 		err  error
 	)
@@ -178,7 +179,13 @@ func (s *SnapshotTaker) syncChainMeta() (*types.Block, error) {
 		return head, err
 	}
 
-	palaMeta, err := slowestPeer.GetPalaMeta()
+	if target == 0 {
+		bn = rpc.LatestBlockNumber
+	} else {
+		bn = rpc.BlockNumber(target)
+	}
+
+	palaMeta, err := slowestPeer.GetPalaMeta(bn)
 	if err != nil {
 		return head, err
 	}
@@ -248,10 +255,15 @@ LOOP:
 func (s *SnapshotTaker) processBlock(head *types.Block) {
 	defer s.wg.Done()
 
-	startBlock := s.restoreProgressOrZero()
+	lastProgess := s.restoreProgressOrZero()
+	if s.config.StartBlock != nil && s.config.StartBlock.Cmp(lastProgess) > 0 {
+		lastProgess = s.config.StartBlock
+	}
+
+	startBlock := new(big.Int).Add(lastProgess, BIG_ONE)
 	fmt.Printf("BatchSyncer start block: %s\n", startBlock.String())
 	batchSyncer := NewBatchSyncer(s.db, s.pg)
-	go batchSyncer.start()
+	batchSyncer.start()
 
 	canceled := false
 	blockNums := []*big.Int{}
@@ -302,12 +314,15 @@ func Exit(err error) {
 }
 
 type SnapshotConfig struct {
+	ArchiveRpcs    []string `yaml:"ArchiveRpcs"`
 	RpcUrls        []string `yaml:"RpcUrls"`
 	Datadir        string   `yaml:"Datadir"`
 	Concurrency    int      `yaml:"Concurrency"`
 	Offset         uint64   `yaml:"Offset"`
 	BlockBatchSize int      `yaml:"BlockBatchSize"`
 	TrieBatchSize  int      `yaml:"TrieBatchSize"`
+	TargetBlock    int      `yaml:"TargetBlock"`
+	StartBlock     *big.Int `yaml:"StartBlock"`
 	configPath     string
 }
 

@@ -35,6 +35,7 @@ func TestMain(m *testing.M) {
 		config.NewSessionSetting("committee.minBidderStake", minBidderStake, 0),
 		config.NewSessionSetting("committee.minGasBidPrice", ScientificBigIntParse("1e+7"), 0),
 		config.NewSessionSetting("committee.electionScheme", "TotalStakeThreshold", 0),
+		config.NewSessionSetting("committee.clearingGasPriceScheme", "Top1CandidatesDecision", 0),
 		config.NewSessionSetting("committee.AuctionStakeThreshold", new(big.Int).Mul(minBidderStake, big.NewInt(auctionStakeOverMinStakeRatio)), 0),
 		config.NewSessionSetting("committee.minCommitteeSize", 1, 0),
 		config.NewSessionSetting("committee.expectedCommSize", 4, 0),

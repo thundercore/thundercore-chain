@@ -25,6 +25,7 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/ethereum/go-ethereum/accounts"
 	"github.com/ethereum/go-ethereum/core/rawdb"
@@ -58,6 +59,11 @@ type Node struct {
 	inprocHandler *rpc.Server // In-process RPC request handler to process the API requests
 
 	databases map[*closeTrackingDB]struct{} // All open databases
+
+	// thunder_patch begin
+	// used atomic.SwapInt32 to make sure isRpcRunning is thread safe
+	isRpcRunning int32
+	// thunder_patch end
 }
 
 const (
@@ -288,6 +294,8 @@ func (n *Node) openEndpoints() error {
 		n.stopRPC()
 		n.server.Stop()
 	}
+
+	atomic.SwapInt32(&n.isRpcRunning, 1)
 	return err
 }
 
@@ -597,7 +605,7 @@ func (n *Node) OpenDatabase(name string, cache, handles int, namespace string, r
 // creates one if no previous can be found) from within the node's data directory,
 // also attaching histroy stores with order list (or loading by lexicographical order
 // when list is empty) to it that query cold immutable chain data from the history stores.
-func (n *Node) OpenDatabaseWithHistory(name string, cache, handles int, historyOrderList, namespace string, readonly bool) (ethdb.Database, error) {
+func (n *Node) OpenDatabaseWithHistory(name string, cache, handles int, historyOrderList []string, namespace string, readonly bool) (ethdb.Database, error) {
 	n.lock.Lock()
 	defer n.lock.Unlock()
 	if n.state == closedState {
@@ -609,6 +617,10 @@ func (n *Node) OpenDatabaseWithHistory(name string, cache, handles int, historyO
 	if n.config.DataDir == "" {
 		db = rawdb.NewMemoryDatabase()
 	} else {
+		// make all path from /datadir-old*/ to /datadir-old*/thunder/chaindata
+		for i := 0; i < len(historyOrderList); i++ {
+			historyOrderList[i] = filepath.Join(historyOrderList[i], n.config.name(), name)
+		}
 		db, err = rawdb.NewLevelDBDatabaseWithHistory(n.config.instanceDir(), name, historyOrderList, cache, handles, namespace, readonly)
 	}
 
@@ -703,7 +715,11 @@ func (n *Node) ResumeRpc() error {
 	n.startStopLock.Lock()
 	defer n.startStopLock.Unlock()
 
-	return n.startRPC()
+	err := n.startRPC()
+
+	atomic.SwapInt32(&n.isRpcRunning, 1)
+
+	return err
 }
 
 func (n *Node) SuspendRpc() {
@@ -718,6 +734,12 @@ func (n *Node) SuspendRpc() {
 	defer n.startStopLock.Unlock()
 
 	n.stopRPC()
+
+	atomic.SwapInt32(&n.isRpcRunning, 0)
+}
+
+func (n *Node) IsRpcRunning() bool {
+	return atomic.LoadInt32(&n.isRpcRunning) == 1
 }
 
 // thunder_patch end

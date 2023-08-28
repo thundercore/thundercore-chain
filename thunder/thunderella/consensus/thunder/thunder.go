@@ -270,7 +270,7 @@ type RpcDelegate interface {
 	GetBlockInfo(rpc.BlockNumber) (interface{}, error)
 	GetNumberByBlockSn(session, epoch, s uint32) (interface{}, error)
 	GetTtTransfersByBlockNumber(number uint64) (interface{}, error)
-	GetPalaMetaForSnapshot() (interface{}, error)
+	GetPalaMetaForSnapshot(rpc.BlockNumber) (interface{}, error)
 	GetTrieStateForSnapshot([]common.Hash) (interface{}, error)
 	GetTtBlockForSnapshot(uint64) (interface{}, error)
 	GetTotalSupply(rpc.BlockNumber) (interface{}, error)
@@ -279,6 +279,7 @@ type RpcDelegate interface {
 	// GetSessionStatus return the start block, stop block, end block and K value in the given session
 	GetSessionStatus(uint32) (interface{}, error)
 	GetBidStatus(rpc.BlockNumber) (interface{}, error)
+	TraceTransaction(txHash common.Hash) (interface{}, error)
 }
 
 // New creates a Thunder proof-of-stake consensus engine.

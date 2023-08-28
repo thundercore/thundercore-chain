@@ -244,7 +244,7 @@ func (m *Mediator) handleRpcRequest(r rpcRequest) {
 		}
 
 	case "GetPalaMetaForSnapshot":
-		res, err := m.chain.(*blockchain.BlockChainImpl).GetPalaMetaForSnapshot()
+		res, err := m.chain.(*blockchain.BlockChainImpl).GetPalaMetaForSnapshot(r.args[0].(rpc.BlockNumber))
 		if err != nil {
 			r.response <- rpcResponse{result: nil, err: err}
 		} else {
@@ -289,6 +289,10 @@ func (m *Mediator) handleRpcRequest(r rpcRequest) {
 
 	case "GetBidStatus":
 		res, err := m.chain.(*blockchain.BlockChainImpl).GetBidStatus(r.args[0].(rpc.BlockNumber))
+		r.response <- rpcResponse{result: res, err: err}
+
+	case "TraceTransaction":
+		res, err := m.chain.(*blockchain.BlockChainImpl).TraceTransaction(r.args[0].(common.Hash))
 		r.response <- rpcResponse{result: res, err: err}
 
 	default:
@@ -648,11 +652,11 @@ func (m *Mediator) GetTtTransfersByBlockNumber(number uint64) (interface{}, erro
 	return r.result, r.err
 }
 
-func (m *Mediator) GetPalaMetaForSnapshot() (interface{}, error) {
+func (m *Mediator) GetPalaMetaForSnapshot(bn rpc.BlockNumber) (interface{}, error) {
 	ch := make(chan rpcResponse)
 	m.selfChan <- rpcRequest{
 		name:     "GetPalaMetaForSnapshot",
-		args:     nil,
+		args:     []interface{}{bn},
 		response: ch,
 	}
 	r := <-ch
@@ -733,6 +737,17 @@ func (m *Mediator) GetBidStatus(bn rpc.BlockNumber) (interface{}, error) {
 	m.selfChan <- rpcRequest{
 		name:     "GetBidStatus",
 		args:     []interface{}{bn},
+		response: ch,
+	}
+	r := <-ch
+	return r.result, r.err
+}
+
+func (m *Mediator) TraceTransaction(txHash common.Hash) (interface{}, error) {
+	ch := make(chan rpcResponse)
+	m.selfChan <- rpcRequest{
+		name:     "TraceTransaction",
+		args:     []interface{}{txHash},
 		response: ch,
 	}
 	r := <-ch

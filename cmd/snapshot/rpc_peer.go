@@ -6,6 +6,7 @@ import (
 	"math/big"
 	"sync"
 
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/thunder/pala/blockchain"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -63,9 +64,15 @@ func (peer *RpcPeer) Available() bool {
 	return peer.available
 }
 
-func (peer *RpcPeer) GetPalaMeta() (map[string][]byte, error) {
+func (peer *RpcPeer) GetPalaMeta(bn rpc.BlockNumber) (map[string][]byte, error) {
 	result := make(map[string][]byte)
-	err := peer.client.CallContext(context.TODO(), &result, "thunder_getPalaMetaForSnapshot")
+
+	blockNum := "latest"
+	if bn != rpc.LatestBlockNumber {
+		blockNum = hexutil.EncodeBig(new(big.Int).SetInt64(bn.Int64()))
+	}
+
+	err := peer.client.CallContext(context.TODO(), &result, "thunder_getPalaMetaForSnapshot", blockNum)
 	return result, err
 }
 

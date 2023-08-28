@@ -29,6 +29,7 @@ var (
 	_randomR2P5           = &random2P5{random{base{logger: logger.NewChildLgr("Random")}}}
 	_randomV3             = &randomV3{base{logger: logger.NewChildLgr("Random")}}
 	_randomV4             = &randomV4{randomV3{base{logger: logger.NewChildLgr("Random")}}}
+	_randomV5             = &randomV5{randomV3{base{logger: logger.NewChildLgr("Random")}}}
 	_tempRngForCopyChange = &tempRngForCopyChange{base{logger: logger.NewChildLgr("Random")}}
 
 	_blocksn = &thunderBlockSn{base{logger: logger.NewChildLgr("BlockSn")}}
@@ -79,7 +80,9 @@ func precompiledContractsForBlock(evm *vm.EVM) map[common.Address]vm.Precompiled
 
 	// update based on hard forks
 	if IsRNGActive.GetValueAt(b) {
-		if thunderConfig.RNGVersion.GetValueAtSession(int64(s)) == "v4" {
+		if thunderConfig.RNGVersion.GetValueAtSession(int64(s)) == "v5" {
+			r[randomAddress] = _randomV5
+		} else if thunderConfig.RNGVersion.GetValueAtSession(int64(s)) == "v4" {
 			r[randomAddress] = _randomV4
 		} else if thunderConfig.RNGVersion.GetValueAtSession(int64(s)) == "v3" {
 			r[randomAddress] = _randomV3

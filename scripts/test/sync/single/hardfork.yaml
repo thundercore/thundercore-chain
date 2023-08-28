@@ -3,6 +3,7 @@
   desc: "Default Value before any hardfork"
   committee:
       electionScheme: "TopKCandidates"
+      clearingGasPriceScheme: "Top1CandidatesDecision"
       electVersion: ""
       expectedCommSize: 4
       minBidderStake: 1E+23

@@ -4,6 +4,7 @@
   committee:
       auctionStakeThreshold: 500000000000000000000000
       electionScheme: "TotalStakeThreshold"
+      clearingGasPriceScheme: "CandidatesMax"
       minBidderStake: 100000000000000000000000
       minCommitteeSize: 1
       minGasBidPrice: 10000000
@@ -35,6 +36,7 @@
   committee:
     electionScheme: "TopKCandidates"
     expectedCommSize: 3
+    clearingGasPriceScheme: "Top1CandidatesDecision"
 
 - blocknum: 1000
   desc: "Pala hardfork"

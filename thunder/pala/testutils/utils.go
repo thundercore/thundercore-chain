@@ -111,6 +111,10 @@ func (r *FakeRpcSwitch) SuspendRpc() {
 	r.statusChanges = append(r.statusChanges, r.running)
 }
 
+func (r *FakeRpcSwitch) IsRpcRunning() bool {
+	return r.running
+}
+
 func (r *FakeRpcSwitch) ResumeRpc() error {
 	if r.err != nil {
 		return r.err

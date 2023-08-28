@@ -162,7 +162,7 @@ type Config struct {
 	DatabaseFreezer    string
 	// thunder_patch begin
 	// run gencodec -type Config -formats toml -out gen_config.go in a new go-ethereum repo
-	DatabaseHistory string
+	DatabaseHistory []string
 	// thunder_patch end
 
 	TrieCleanCache          int
